@@ -1,0 +1,52 @@
+{
+  "name": "spnd",
+  "version": "0.1.0",
+  "private": true,
+  "overrides": {
+    "postcss": "^8.5.10"
+  },
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "eslint . --max-warnings=0",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "import:transactions": "tsx --env-file=.env.local scripts/import-transactions.ts",
+    "db:types": "supabase gen types typescript --local > src/types/database.generated.ts"
+  },
+  "dependencies": {
+    "@supabase/ssr": "0.12.3",
+    "@supabase/supabase-js": "2.110.5",
+    "@vercel/analytics": "latest",
+    "@vercel/speed-insights": "latest",
+    "clsx": "latest",
+    "csv-parse": "^7.0.1",
+    "date-fns": "latest",
+    "lucide-react": "latest",
+    "next": "16.2.10",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "server-only": "latest",
+    "tailwind-merge": "latest",
+    "zod": "latest"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "4.3.2",
+    "@testing-library/jest-dom": "latest",
+    "@testing-library/react": "latest",
+    "@types/node": "latest",
+    "@types/react": "latest",
+    "@types/react-dom": "latest",
+    "eslint": "latest",
+    "eslint-config-next": "16.2.10",
+    "jsdom": "latest",
+    "prettier": "latest",
+    "prettier-plugin-tailwindcss": "latest",
+    "tailwindcss": "4.3.2",
+    "tsx": "^4.23.1",
+    "typescript": "latest",
+    "vitest": "4.1.10"
+  }
+}

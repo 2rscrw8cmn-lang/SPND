@@ -21,6 +21,7 @@ SPND is a dark-only, mobile-first web application for Zack and Stephanie. It use
 - [Design system and UX guide](docs/05-design-guide.md)
 - [Owner setup checklist](docs/06-owner-setup.md)
 - [Data model](docs/07-data-model.md)
+- [Production launch](docs/08-production-launch.md)
 
 ## Recommended stack
 

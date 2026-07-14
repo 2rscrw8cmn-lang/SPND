@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+.vercel/
+coverage/
+*.tsbuildinfo
+*.log
+.env
+.env.*
+!.env.example
+
+# Private household financial exports must never be committed.
+transactions.csv
+
+
+.vercel
+.env*
