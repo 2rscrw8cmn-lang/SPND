@@ -17,6 +17,15 @@ export type BudgetWorkspace = {
   totals: { budgetedCents: number; spentCents: number; pendingCents: number; remainingCents: number };
 };
 
+export type ActivityTransaction = {
+  id: string; merchant: string; categoryId: string; category: string; amountCents: number;
+  date: string; isoDate: string; status: "pending" | "posted"; color: string;
+  accountId: string; accountName: string; rawDescription: string; note: string;
+  excluded: boolean; isTransfer: boolean; isRecurring: boolean;
+  reviewStatus: "needs_review" | "reviewed"; reviewedAt: string | null;
+  allocations: Array<{ categoryId: string; category: string; amountCents: number }>;
+};
+
 export function normalizeBudgetMonth(value?: string) {
   const parsed = value ? parseISO(`${value.slice(0, 7)}-01`) : new Date();
   return startOfMonth(isValid(parsed) ? parsed : new Date());
@@ -53,6 +62,7 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
   ]);
   const { data: transactions } = await context.supabase.from("transactions")
     .select("id,status,amount_cents").eq("household_id", context.householdId).eq("excluded", false).lt("amount_cents", 0)
+    .is("superseded_by_transaction_id", null)
     .or(`and(status.eq.posted,posted_at.gte.${monthStart},posted_at.lt.${nextMonthStart}),and(status.eq.pending,transacted_at.gte.${monthStart},transacted_at.lt.${nextMonthStart})`);
   const transactionIds = (transactions ?? []).map((transaction) => transaction.id as string);
   const { data: allocations } = transactionIds.length
@@ -105,25 +115,37 @@ export async function getAccountsData() {
   return (data ?? []).map((account) => ({ id: account.id as string, name: account.name as string, institutionName: (account.institution_name as string | null) ?? "Imported account", balanceCents: Number(account.current_balance_cents), mode: account.cash_flow_mode as "cash" | "net_worth" | "excluded" }));
 }
 
-export async function getActivityData(limit = 100) {
+export async function getActivityData(limit = 100): Promise<ActivityTransaction[]> {
   if (isDemoMode) return demoTransactions;
   const context = await householdContext();
   if (!context) return [];
   const { data } = await context.supabase.from("transactions")
-    .select("id,merchant,amount_cents,status,transacted_at,transaction_allocations(category_id,categories(name,color))")
-    .eq("household_id", context.householdId).order("transacted_at", { ascending: false }).limit(limit);
+    .select("id,merchant,amount_cents,status,transacted_at,posted_at,raw_description,note,excluded,is_transfer,is_recurring,review_status,reviewed_at,account_id,accounts(name),transaction_allocations(category_id,amount_cents,categories(name,color))")
+    .eq("household_id", context.householdId).is("superseded_by_transaction_id", null).order("transacted_at", { ascending: false }).limit(limit);
   return (data ?? []).map((transaction) => {
-    const allocations = transaction.transaction_allocations as unknown as Array<{ categories: { name: string; color: string } | null }>;
+    const allocations = transaction.transaction_allocations as unknown as Array<{ category_id: string; amount_cents: number; categories: { name: string; color: string } | null }>;
     const category = allocations?.[0]?.categories;
+    const account = transaction.accounts as unknown as { name: string } | null;
     return {
       id: transaction.id as string,
       merchant: transaction.merchant as string,
-      categoryId: ((transaction.transaction_allocations as unknown as Array<{ category_id?: string }>)?.[0]?.category_id ?? "") as string,
+      categoryId: category?.name === "Unsorted" ? "" : (((transaction.transaction_allocations as unknown as Array<{ category_id?: string }>)?.[0]?.category_id ?? "") as string),
       category: category?.name ?? "Unsorted",
       amountCents: Number(transaction.amount_cents),
       date: format(new Date(transaction.transacted_at as string), "MMM d"),
+      isoDate: (transaction.posted_at ?? transaction.transacted_at) as string,
       status: transaction.status as "pending" | "posted",
       color: category?.color ?? "#A6ACB8",
+      accountId: transaction.account_id as string,
+      accountName: account?.name ?? "Imported account",
+      rawDescription: (transaction.raw_description as string | null) ?? "",
+      note: (transaction.note as string | null) ?? "",
+      excluded: Boolean(transaction.excluded),
+      isTransfer: Boolean(transaction.is_transfer),
+      isRecurring: Boolean(transaction.is_recurring),
+      reviewStatus: transaction.review_status as "needs_review" | "reviewed",
+      reviewedAt: transaction.reviewed_at as string | null,
+      allocations: (allocations ?? []).map((allocation) => ({ categoryId: allocation.category_id, category: allocation.categories?.name ?? "Unsorted", amountCents: Number(allocation.amount_cents) })),
     };
   });
 }
@@ -159,7 +181,7 @@ export async function getSafeBreakdown() {
     getBudgetData(),
     getPlanData(),
     context.supabase.from("accounts").select("current_balance_cents").eq("household_id", context.householdId).eq("cash_flow_mode", "cash"),
-    context.supabase.from("transactions").select("amount_cents").eq("household_id", context.householdId).eq("status", "pending").eq("excluded", false).lt("amount_cents", 0),
+    context.supabase.from("transactions").select("amount_cents").eq("household_id", context.householdId).eq("status", "pending").eq("excluded", false).is("superseded_by_transaction_id", null).lt("amount_cents", 0),
     context.supabase.from("households").select("minimum_cash_buffer_cents").eq("id", context.householdId).single(),
   ]);
   const nextIncome = plan.find((item) => item.type === "income");

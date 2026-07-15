@@ -137,8 +137,8 @@ export async function syncConnection(connectionId: string, initial = false) {
         accountCount += 1;
 
         const { data: existingPending } = await admin.from("transactions")
-          .select("id, account_id, provider_transaction_id, transacted_at, amount_cents, merchant, status")
-          .eq("account_id", account.id).eq("status", "pending");
+          .select("id, account_id, provider_transaction_id, transacted_at, amount_cents, merchant, status, note, excluded, is_transfer, is_recurring, review_status, reviewed_at, reviewed_by")
+          .eq("account_id", account.id).eq("status", "pending").is("superseded_by_transaction_id", null);
         const pending = (existingPending ?? []).map((item) => ({
           accountId: item.account_id as string,
           providerId: item.provider_transaction_id ?? undefined,
@@ -180,7 +180,18 @@ export async function syncConnection(connectionId: string, initial = false) {
           }, { onConflict: "account_id,source_fingerprint", ignoreDuplicates: false }).select("id").single();
           if (transactionError || !savedTransaction) throw new Error("Unable to save an imported transaction.");
 
-          const { data: existingAllocation } = await admin.from("transaction_allocations").select("id").eq("transaction_id", savedTransaction.id).limit(1).maybeSingle();
+          let { data: existingAllocation } = await admin.from("transaction_allocations").select("id").eq("transaction_id", savedTransaction.id).limit(1).maybeSingle();
+          if (matchId) {
+            const pendingSource = (existingPending ?? []).find((item) => item.id === matchId);
+            if (pendingSource) await admin.from("transactions").update({ note: pendingSource.note, excluded: pendingSource.excluded, is_transfer: pendingSource.is_transfer, is_recurring: pendingSource.is_recurring, review_status: pendingSource.review_status, reviewed_at: pendingSource.reviewed_at, reviewed_by: pendingSource.reviewed_by, updated_at: now.toISOString() }).eq("id", savedTransaction.id);
+            if (!existingAllocation) {
+              const { data: pendingAllocations } = await admin.from("transaction_allocations").select("category_id,amount_cents,source").eq("transaction_id", matchId);
+              if (pendingAllocations?.length) {
+                await admin.from("transaction_allocations").insert(pendingAllocations.map((allocation) => ({ household_id: connection.household_id, transaction_id: savedTransaction.id, category_id: allocation.category_id, amount_cents: allocation.amount_cents, source: allocation.source })));
+                existingAllocation = { id: "copied-from-pending" };
+              }
+            }
+          }
           if (!existingAllocation && transaction.amountCents < 0) {
             let categoryId = ruleMap.get(normalized);
             let source: "merchant_rule" | "merchant_history" | "unsorted" = categoryId ? "merchant_rule" : "unsorted";
@@ -195,7 +206,10 @@ export async function syncConnection(connectionId: string, initial = false) {
             categoryId ??= unsortedId;
             if (categoryId) await admin.from("transaction_allocations").insert({ household_id: connection.household_id, transaction_id: savedTransaction.id, category_id: categoryId, amount_cents: transaction.amountCents, source });
           }
-          if (matchId) await admin.from("transactions").delete().eq("id", matchId).eq("status", "pending");
+          if (matchId) {
+            await admin.from("transactions").update({ excluded: true, superseded_by_transaction_id: savedTransaction.id, updated_at: now.toISOString() }).eq("id", matchId).eq("status", "pending");
+            await admin.from("audit_events").insert({ household_id: connection.household_id, entity_type: "transaction", entity_id: savedTransaction.id, action: "pending_reconciled", metadata: { pendingTransactionId: matchId } });
+          }
           transactionCount += 1;
         }
       }

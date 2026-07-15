@@ -1,9 +1,10 @@
-import { Briefcase, Car, CircleHelp, Clapperboard, CreditCard, Gift, HeartPulse, House, PiggyBank, Plane, ShieldCheck, ShoppingBag, ShoppingCart, Smile, Users, Utensils, Zap, type LucideIcon } from "lucide-react";
+import { Banknote, Briefcase, Bus, Car, CircleHelp, Clapperboard, CreditCard, Dumbbell, Fuel, Gift, GraduationCap, HeartPulse, House, Landmark, PawPrint, PiggyBank, Plane, ReceiptText, ShieldCheck, ShoppingBag, ShoppingCart, Smile, Smartphone, Sparkles, Train, Users, Utensils, WalletCards, Wrench, Zap, type LucideIcon } from "lucide-react";
 
 export const categoryIcons: Record<string, LucideIcon> = {
   House, Zap, ShoppingCart, Utensils, Car, ShieldCheck, HeartPulse, Users,
   ShoppingBag, Clapperboard, Plane, PiggyBank, CreditCard, Briefcase,
-  Gift, Smile, CircleHelp,
+  Gift, Smile, CircleHelp, Banknote, Bus, Dumbbell, Fuel, GraduationCap,
+  Landmark, PawPrint, ReceiptText, Smartphone, Sparkles, Train, WalletCards, Wrench,
 };
 
 export function CategoryIcon({ name, size = 22 }: { name: string; size?: number }) {

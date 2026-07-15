@@ -5,7 +5,7 @@ import { Archive, ChevronLeft, ChevronRight, Plus, RotateCcw, X } from "lucide-r
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { BudgetRow } from "@/components/budget-row";
-import { categoryIcons } from "@/components/icons";
+import { CategoryIcon, categoryIcons } from "@/components/icons";
 import type { BudgetCategory, BudgetWorkspace as Workspace } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 
@@ -78,7 +78,7 @@ function CategoryPanel({ category, month, message, onClose, onSaveCategory, onSa
     <div className="field"><label htmlFor="category-name">Name</label><input id="category-name" value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></div>
     <div className="field"><label htmlFor="category-budget">Monthly amount</label><input id="category-budget" type="number" min="0" step="0.01" inputMode="decimal" value={draft.budgetedCents / 100} onChange={(event) => setDraft({ ...draft, budgetedCents: Math.round(Number(event.target.value) * 100) })} /></div>
     <div className="field"><label htmlFor="category-group">Group</label><select id="category-group" value={draft.categoryGroup} onChange={(event) => setDraft({ ...draft, categoryGroup: event.target.value, isExcluded: event.target.value === "Excluded", showInBudget: event.target.value !== "Excluded" })}>{groups.map((group) => <option key={group}>{group}</option>)}</select></div>
-    <div className="field"><label htmlFor="category-icon">Icon</label><select id="category-icon" value={draft.icon} onChange={(event) => setDraft({ ...draft, icon: event.target.value })}>{Object.keys(categoryIcons).map((icon) => <option key={icon}>{icon}</option>)}</select></div>
+    <fieldset className="icon-picker"><legend>Icon</legend>{Object.keys(categoryIcons).map((icon) => <button type="button" aria-label={icon} aria-pressed={draft.icon === icon} className={draft.icon === icon ? "selected" : ""} key={icon} onClick={() => setDraft({ ...draft, icon })}><CategoryIcon name={icon} /></button>)}</fieldset>
     <div className="color-picker" aria-label="Category color">{colors.map((color) => <button aria-label={color} className={draft.color === color ? "selected" : ""} style={{ background: color }} key={color} onClick={() => setDraft({ ...draft, color })} />)}</div>
     <Link className="secondary-button category-transactions" href={`/activity?category=${category.id}&month=${month.slice(0, 7)}`}>View category transactions <ChevronRight size={18} /></Link>
     <div className="sheet-actions"><button className="primary-button" onClick={async () => { await onSaveCategory(draft); await onSaveBudget(draft); }}>Save changes</button><button className="secondary-button" onClick={() => onSaveCategory({ ...draft, isActive: !draft.isActive })}>{draft.isActive ? <><Archive size={17} /> Archive</> : <><RotateCcw size={17} /> Restore</>}</button></div>
