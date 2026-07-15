@@ -21,6 +21,19 @@ Do not commit bank balances, account numbers, transaction names, addresses, or o
 
 ## Current reference set
 
+### Approved production-polish mocks
+
+These mocks are the primary implementation references for docs 14–17. They supersede older references when transaction behavior, Review navigation, category detail, Income, icon treatment, or gradient use differs.
+
+| File | Screens | Binding direction |
+| --- | --- | --- |
+| [production-polish/review-category-move.jpg](assets/production-polish/review-category-move.jpg) | Review inbox, category detail, Move picker | Review is a primary mode; Activity and category detail share transaction rows; swipe right reviews; swipe left moves; long category detail is full-screen on phone |
+| [production-polish/home-budget-income.jpg](assets/production-polish/home-budget-income.jpg) | Home, monthly Budget, Income | Atmospheric gradients are meaningful and restrained; icons use curated gradient tiles; Budget exposes Income; expected and received income have a dedicated view |
+
+The generated values and sample merchant marks are fictional presentation content. Implement the hierarchy and interaction contracts, not brand marks or pixel-perfect generated text.
+
+### Earlier inspiration
+
 | File | Screen | What to emulate |
 | --- | --- | --- |
 | 01-3D628D3C-CF49-4E35-BA05-289EF11FE858_4_5005_c.jpeg | Budget | Compact month rail, dense category rows, inline alert, icon color language, bottom nav |
@@ -48,8 +61,9 @@ For every visual milestone, add redacted screenshots of:
 
 - 390px Home: empty, on-track, attention, disconnected.
 - 390px Budget: ordinary month, over-budget category, empty category.
-- 390px Activity: Needs review, after review action, category-filtered, pending.
+- 390px Activity: Review inbox, All activity, after review action, category-filtered, pending.
 - 390px category detail: transactions present, no transactions, settings section.
+- 390px Income: expected/received, unmatched deposit, empty state.
 - 430px and desktop spot checks.
 - Any error or import-review state changed by the milestone.
 

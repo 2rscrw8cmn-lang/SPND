@@ -27,6 +27,11 @@ SPND is a dark-only, mobile-first web application for Zack and Stephanie. It use
 - [Design reference image guide](docs/11-design-reference-images.md)
 - [Authoritative accounting rules](docs/12-accounting-rules.md)
 - [Final stabilization and release plan](docs/13-final-stabilization-plan.md)
+- [Production polish product specification](docs/14-production-polish-product-spec.md)
+- [Transaction, review, and remembered-rule contract](docs/15-transaction-review-and-rules.md)
+- [Responsive and visual system](docs/16-responsive-visual-system.md)
+- [Production polish implementation plan](docs/17-production-polish-implementation-plan.md)
+- [Production polish Codex kickoff prompt](docs/18-production-polish-kickoff-prompt.md)
 
 ## Recommended stack
 
