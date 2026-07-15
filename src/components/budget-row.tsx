@@ -14,6 +14,8 @@ export function BudgetRow({ category, compact = false, onSelect }: BudgetRowProp
   const percent = Math.min(100, Math.round((used / Math.max(1, category.budgetedCents)) * 100));
   const isUnbudgetedSpend = category.budgetedCents === 0 && used > 0;
   const state = isUnbudgetedSpend || remaining < 0 ? "over" : category.budgetedCents === 0 ? "empty" : percent >= 80 ? "approaching" : "active";
+  const transactionCount = category.recentTransactions?.length ?? 0;
+  const transactionLabel = transactionCount ? `${transactionCount} transaction${transactionCount === 1 ? "" : "s"}` : "No transactions";
   return (
     <article className={`budget-row ${state}`} onClick={onSelect} onKeyDown={onSelect ? (event) => { if (event.key === "Enter" || event.key === " ") onSelect(); } : undefined} role={onSelect ? "button" : undefined} tabIndex={onSelect ? 0 : undefined}>
       <div className="category-disc" style={{ "--category": category.color } as React.CSSProperties}>
@@ -21,16 +23,15 @@ export function BudgetRow({ category, compact = false, onSelect }: BudgetRowProp
       </div>
       <div className="budget-row-main">
         <div className="budget-row-top">
-          <h3>{category.name}</h3>
+          <div className="budget-row-identity"><h3>{category.name}</h3><p>{compact ? transactionLabel : category.pendingCents ? `${transactionLabel} · pending included` : transactionLabel}</p></div>
           <div className="budget-amount">
-            <strong className={state === "over" ? "negative" : ""}>{isUnbudgetedSpend ? formatCurrency(used, { compact: true }) : category.budgetedCents === 0 ? "—" : formatCurrency(Math.abs(remaining), { compact: true })}</strong>
-            <span>{isUnbudgetedSpend ? "unbudgeted" : category.budgetedCents === 0 ? "add budget" : remaining < 0 ? "over" : "left"}</span>
+            <strong>{category.budgetedCents === 0 ? formatCurrency(used, { compact: true }) : `${formatCurrency(used, { compact: true })} / ${formatCurrency(category.budgetedCents, { compact: true })}`}</strong>
+            <span className={state === "over" ? "negative" : ""}>{isUnbudgetedSpend ? "unbudgeted" : category.budgetedCents === 0 ? "add budget" : `${formatCurrency(Math.abs(remaining), { compact: true })} ${remaining < 0 ? "over" : "left"}`}</span>
           </div>
         </div>
         <div className="progress-track" aria-label={`${percent}% of ${category.name} budget used`}>
           <span style={{ width: `${percent}%`, backgroundColor: category.color }} />
         </div>
-        <p>{compact ? `${category.recentTransactions?.length || "No"} transaction${category.recentTransactions?.length === 1 ? "" : "s"}` : `${formatCurrency(category.spentCents)} spent${category.pendingCents ? ` · ${formatCurrency(category.pendingCents)} pending` : ""} · ${formatCurrency(category.budgetedCents)} budget`}</p>
       </div>
       <ChevronRight className="row-chevron" size={22} />
     </article>

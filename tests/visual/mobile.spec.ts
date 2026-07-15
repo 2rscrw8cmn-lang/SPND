@@ -69,7 +69,14 @@ test.describe("390px mobile visual QA", () => {
     await expect(detail).toBeVisible();
     await expect(detail.getByText("Split transaction")).toBeVisible();
     await expect(detail.getByText("Mark reviewed")).toBeVisible();
+    await detail.getByRole("button", { name: "Edit merchant name" }).click();
     await expect(detail.getByLabel("Merchant display name")).toHaveValue("Publix");
+    await detail.locator(".category-select-trigger").click();
+    const picker = page.getByRole("dialog", { name: "Choose category for Publix" });
+    await expect(picker.getByRole("button", { name: /Housing/ })).toBeVisible();
+    await expect(picker.getByRole("button", { name: /Groceries/ })).toHaveAttribute("aria-pressed", "true");
+    await page.keyboard.press("Escape");
+    await expect(detail).toBeVisible();
     await expect(detail.getByText("Change history")).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await capture(page, testInfo, "activity-transaction-detail");
@@ -98,6 +105,11 @@ test.describe("390px mobile visual QA", () => {
     await page.goto("/budget");
     await expect(page.locator(".budget-summary-ring")).toBeVisible();
     await expect(page.getByText("available after pending")).toBeVisible();
+    const essentials = page.getByRole("button", { name: /Essentials.*categories/ });
+    await essentials.click();
+    await expect(page.getByRole("button", { name: /Groceries/ })).toBeHidden();
+    await essentials.click();
+    await expect(page.getByRole("button", { name: /Groceries/ })).toBeVisible();
 
     await page.goto("/activity");
     await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();

@@ -5,13 +5,14 @@ import { cn } from "@/lib/utils";
 
 type BottomSheetProps = {
   children: ReactNode;
+  backdropClassName?: string;
   className?: string;
   label: string;
   onClose: () => void;
   handleLabel?: string;
 };
 
-export function BottomSheet({ children, className, label, onClose, handleLabel = "Swipe down to close" }: BottomSheetProps) {
+export function BottomSheet({ children, backdropClassName, className, label, onClose, handleLabel = "Swipe down to close" }: BottomSheetProps) {
   const sheetRef = useRef<HTMLElement>(null);
   const dragStart = useRef<{ y: number; time: number; distance: number } | null>(null);
   const [dragY, setDragY] = useState(0);
@@ -23,7 +24,8 @@ export function BottomSheet({ children, className, label, onClose, handleLabel =
     sheetRef.current?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      const openSheets = document.querySelectorAll("[data-bottom-sheet]");
+      if (event.key === "Escape" && openSheets.item(openSheets.length - 1) === sheetRef.current) onClose();
     };
     window.addEventListener("keydown", onKeyDown);
     return () => {
@@ -65,7 +67,7 @@ export function BottomSheet({ children, className, label, onClose, handleLabel =
 
   return (
     <div
-      className="sheet-backdrop"
+      className={cn("sheet-backdrop", backdropClassName)}
       style={{ "--sheet-progress": Math.min(1, dragY / 320) } as CSSProperties}
       onPointerDown={(event) => {
         if (event.target === event.currentTarget) onClose();
@@ -77,6 +79,7 @@ export function BottomSheet({ children, className, label, onClose, handleLabel =
         role="dialog"
         aria-modal="true"
         aria-label={label}
+        data-bottom-sheet
         className={cn("bottom-sheet", className, dragY > 0 && "is-dragging")}
         style={{ transform: `translateY(${dragY}px)` }}
         onPointerDown={onPointerDown}

@@ -31,11 +31,12 @@ export function TransactionRow({ transaction, onSelect, onReview, onChooseCatego
     reset();
   }
   function activate() { if (suppressClick.current) { suppressClick.current = false; return; } onSelect?.(); }
-  return <div ref={shellRef} className={`transaction-swipe-shell ${dragX > 8 ? "revealing-review" : dragX < -8 ? "revealing-category" : ""}`}>
+  const visualStatus = transaction.status === "pending" ? "pending" : transaction.reviewStatus === "reviewed" ? "reviewed" : "needs-review";
+  return <div ref={shellRef} className={`transaction-swipe-shell ${visualStatus} ${dragX > 8 ? "revealing-review" : dragX < -8 ? "revealing-category" : ""}`}>
     <div className="transaction-swipe-action review" aria-hidden="true"><Check /> Review</div><div className="transaction-swipe-action category" aria-hidden="true">Category <Tags /></div>
     <article className="transaction-row" style={{ transform: `translateX(${dragX}px)` }} onPointerDown={pointerDown} onPointerMove={pointerMove} onPointerUp={pointerUp} onPointerCancel={reset} onClick={activate} onKeyDown={onSelect ? (event) => { if (event.target === event.currentTarget && (event.key === "Enter" || event.key === " ")) { event.preventDefault(); onSelect(); } } : undefined} role={onSelect ? "button" : undefined} tabIndex={onSelect ? 0 : undefined} aria-label={onSelect ? `${transaction.merchant}, ${transaction.category}, ${formatCurrency(transaction.amountCents, { signed: true })}` : undefined}>
-      <div className="merchant-mark" style={{ "--merchant": transaction.color } as React.CSSProperties} aria-hidden="true">{transaction.merchant.slice(0, 1)}</div>
-      <div className="transaction-main"><strong>{transaction.merchant}</strong><span>{transaction.category}{transaction.isTransfer ? " · Transfer" : ""}{transaction.excluded ? " · Excluded" : ""}{transaction.allocations.length > 1 ? " · Split" : ""}</span></div>
+      <div className="merchant-mark" aria-hidden="true">{transaction.merchant.slice(0, 1)}</div>
+      <div className="transaction-main"><strong>{transaction.merchant}</strong><span className="transaction-category-label"><i style={{ "--category": transaction.color } as React.CSSProperties} />{transaction.category}{transaction.isTransfer ? " · Transfer" : ""}{transaction.excluded ? " · Excluded" : ""}{transaction.allocations.length > 1 ? " · Split" : ""}</span></div>
       <div className="transaction-amount"><strong className={transaction.amountCents > 0 ? "income" : ""}>{formatCurrency(transaction.amountCents, { signed: true })}</strong><span>{transaction.status === "pending" ? <em>Pending</em> : hideDate ? transaction.reviewStatus === "needs_review" ? "Needs review" : "Reviewed" : transaction.date}</span></div>
       {onReview || onChooseCategory ? <button ref={actionButtonRef} className="row-actions-button" aria-label={`Actions for ${transaction.merchant}`} aria-haspopup="menu" aria-expanded={menuOpen} onClick={(event) => { event.stopPropagation(); setMenuOpen(!menuOpen); }}><Ellipsis /></button> : <ChevronRight className="row-chevron" size={20} />}
     </article>
