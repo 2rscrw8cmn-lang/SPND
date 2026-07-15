@@ -13,12 +13,23 @@ export type BudgetCategory = {
   recentTransactions: BudgetTransaction[];
 };
 
+export type CategoryGroup = { id: string; name: string; sortOrder: number; isSystem: boolean };
+
+export type HouseholdSummary = { name: string; timezone: string; minimumCashBufferCents: number; memberCount: number };
+
 export type BudgetTransaction = { id: string; merchant: string; amountCents: number; isoDate: string; status: "pending" | "posted"; reviewStatus: "needs_review" | "reviewed" };
 
 export type BudgetWorkspace = {
-  month: string; categories: BudgetCategory[]; unsortedCount: number; unsortedCents: number;
+  month: string; categories: BudgetCategory[]; categoryGroups: CategoryGroup[]; unsortedCount: number; unsortedCents: number;
   totals: { incomeCents: number; budgetedCents: number; spentCents: number; pendingCents: number; remainingCents: number };
 };
+
+const demoCategoryGroups: CategoryGroup[] = [
+  { id: "demo-essentials", name: "Essentials", sortOrder: 10, isSystem: true },
+  { id: "demo-lifestyle", name: "Lifestyle", sortOrder: 20, isSystem: true },
+  { id: "demo-goals", name: "Goals", sortOrder: 30, isSystem: true },
+  { id: "demo-excluded", name: "Excluded", sortOrder: 90, isSystem: true },
+];
 
 export type ActivityTransaction = {
   id: string; merchant: string; importedMerchant: string; categoryId: string; category: string; amountCents: number;
@@ -66,17 +77,18 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
     const budgetedCents = categories.reduce((sum, item) => sum + item.budgetedCents, 0);
     const spentCents = categories.reduce((sum, item) => sum + item.spentCents, 0);
     const pendingCents = categories.reduce((sum, item) => sum + item.pendingCents, 0);
-    return { month, categories, unsortedCount: 1, unsortedCents: 7421, totals: { incomeCents: 342500, budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
+    return { month, categories, categoryGroups: demoCategoryGroups, unsortedCount: 1, unsortedCents: 7421, totals: { incomeCents: 342500, budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
   }
   const context = await householdContext();
-  if (!context) return { month, categories: [], unsortedCount: 0, unsortedCents: 0, totals: { incomeCents: 0, budgetedCents: 0, spentCents: 0, pendingCents: 0, remainingCents: 0 } };
+  if (!context) return { month, categories: [], categoryGroups: [], unsortedCount: 0, unsortedCents: 0, totals: { incomeCents: 0, budgetedCents: 0, spentCents: 0, pendingCents: 0, remainingCents: 0 } };
   const monthStart = monthDate.toISOString();
   const nextMonthStart = addMonths(monthDate, 1).toISOString();
-  const [{ data: budgets }, { data: categoryRows }] = await Promise.all([
+  const [{ data: budgets }, { data: categoryRows }, { data: groupRows }] = await Promise.all([
     context.supabase.from("monthly_budgets")
       .select("category_id,budgeted_cents")
       .eq("household_id", context.householdId).eq("month", month),
     context.supabase.from("categories").select("id,name,color,icon,category_group,is_active,is_excluded,show_in_budget").eq("household_id", context.householdId).order("sort_order"),
+    context.supabase.from("category_groups").select("id,name,sort_order,is_system").eq("household_id", context.householdId).order("sort_order"),
   ]);
   const { data: transactions } = await context.supabase.from("transactions")
     .select("id,status,amount_cents,merchant,transacted_at,review_status").eq("household_id", context.householdId).eq("excluded", false)
@@ -120,12 +132,32 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
       pendingCents: pending.get(category.id as string) ?? 0,
       recentTransactions: (recentByCategory.get(category.id as string) ?? []).sort((a, b) => b.isoDate.localeCompare(a.isoDate)).slice(0, 8),
   }));
+  const fallbackGroupNames = Array.from(new Set(["Essentials", "Lifestyle", "Goals", ...categories.map((category) => category.categoryGroup), "Excluded"]));
+  const categoryGroups = groupRows?.length
+    ? groupRows.map((group) => ({ id: group.id as string, name: group.name as string, sortOrder: Number(group.sort_order), isSystem: Boolean(group.is_system) }))
+    : fallbackGroupNames.map((name, index) => ({ id: `legacy-${name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`, name, sortOrder: name === "Excluded" ? 90 : (index + 1) * 10, isSystem: true }));
   const visible = categories.filter((category) => category.isActive && category.showInBudget && !category.isExcluded);
   const budgetedCents = visible.reduce((sum, item) => sum + item.budgetedCents, 0);
   const spentCents = visible.reduce((sum, item) => sum + item.spentCents, 0);
   const pendingCents = visible.reduce((sum, item) => sum + item.pendingCents, 0);
   const incomeCents = (transactions ?? []).filter((transaction) => transaction.status === "posted" && Number(transaction.amount_cents) > 0).reduce((sum, transaction) => sum + Number(transaction.amount_cents), 0);
-  return { month, categories, unsortedCount: unsorted.length, unsortedCents: unsorted.reduce((sum, item) => sum + Math.abs(Number(item.amount_cents)), 0), totals: { incomeCents, budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
+  return { month, categories, categoryGroups, unsortedCount: unsorted.length, unsortedCents: unsorted.reduce((sum, item) => sum + Math.abs(Number(item.amount_cents)), 0), totals: { incomeCents, budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
+}
+
+export async function getHouseholdSummary(): Promise<HouseholdSummary> {
+  if (isDemoMode) return { name: "Turco Household", timezone: "America/New_York", minimumCashBufferCents: 75000, memberCount: 2 };
+  const context = await householdContext();
+  if (!context) return { name: "Household", timezone: "America/New_York", minimumCashBufferCents: 0, memberCount: 0 };
+  const [{ data: household }, { count }] = await Promise.all([
+    context.supabase.from("households").select("name,timezone,minimum_cash_buffer_cents").eq("id", context.householdId).single(),
+    context.supabase.from("household_members").select("user_id", { count: "exact", head: true }).eq("household_id", context.householdId),
+  ]);
+  return {
+    name: (household?.name as string | undefined) ?? "Household",
+    timezone: (household?.timezone as string | undefined) ?? "America/New_York",
+    minimumCashBufferCents: Number(household?.minimum_cash_buffer_cents ?? 0),
+    memberCount: count ?? 0,
+  };
 }
 
 export async function getBudgetData(monthValue?: string) {

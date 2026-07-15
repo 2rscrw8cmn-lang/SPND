@@ -6,17 +6,17 @@ import { PageShell } from "@/components/page-shell";
 import { SectionHeading } from "@/components/section-heading";
 import { TransactionRow } from "@/components/transaction-row";
 import { requireUser } from "@/lib/auth";
-import { getActivityData, getBudgetWorkspace, getSafeBreakdown } from "@/lib/data";
+import { getActivityData, getBudgetWorkspace, getHouseholdSummary, getSafeBreakdown } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 
 export default async function HomePage() {
   const user = await requireUser();
-  const [budget, transactions, safe] = await Promise.all([getBudgetWorkspace(), getActivityData(5), getSafeBreakdown()]);
+  const [budget, transactions, safe, household] = await Promise.all([getBudgetWorkspace(), getActivityData(5), getSafeBreakdown(), getHouseholdSummary()]);
   const categories = budget.categories.filter((category) => category.isActive && category.showInBudget && !category.isExcluded);
   const remainingPercent = budget.totals.budgetedCents > 0 ? Math.max(0, Math.min(100, Math.round((budget.totals.remainingCents / budget.totals.budgetedCents) * 100))) : 0;
   const daysUntilIncome = Math.max(1, differenceInCalendarDays(parseISO(safe.nextIncomeDate), new Date()) + 1);
   const safeTodayCents = Math.floor(safe.safeCents / daysUntilIncome / 100) * 100;
-  const householdHour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "America/New_York" }).format(new Date())) % 24;
+  const householdHour = hourInTimezone(household.timezone);
   const greeting = householdHour < 12 ? "Good morning" : householdHour < 18 ? "Good afternoon" : "Good evening";
   return (
     <PageShell>
@@ -39,4 +39,12 @@ export default async function HomePage() {
       </div>
     </PageShell>
   );
+}
+
+function hourInTimezone(timezone: string) {
+  try {
+    return Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: timezone }).format(new Date())) % 24;
+  } catch {
+    return new Date().getHours();
+  }
 }

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { authenticatedHousehold } from "@/lib/server-auth";
 import { createClient } from "@/lib/supabase/server";
 
-const schema = z.object({ name: z.string().trim().min(1).max(60), categoryGroup: z.enum(["Essentials", "Lifestyle", "Goals", "Excluded"]) });
+const schema = z.object({ name: z.string().trim().min(1).max(60), categoryGroup: z.string().trim().min(1).max(40) });
 
 export async function POST(request: Request) {
   const auth = await authenticatedHousehold();
@@ -11,6 +11,8 @@ export async function POST(request: Request) {
   const body = schema.safeParse(await request.json());
   if (!body.success) return NextResponse.json({ message: "Enter a category name and group." }, { status: 400 });
   const supabase = await createClient();
+  const { data: group } = await supabase.from("category_groups").select("name").eq("household_id", auth.householdId).eq("name", body.data.categoryGroup).maybeSingle();
+  if (!group) return NextResponse.json({ message: "Choose an existing category group." }, { status: 400 });
   const excluded = body.data.categoryGroup === "Excluded";
   const { data, error } = await supabase.from("categories").insert({ household_id: auth.householdId, name: body.data.name, color: "#A6ACB8", icon: "CircleHelp", category_group: body.data.categoryGroup, is_active: true, is_excluded: excluded, show_in_budget: !excluded, sort_order: 500 }).select("id,name,color,icon,category_group,is_active,is_excluded,show_in_budget").single();
   if (error || !data) return NextResponse.json({ message: error?.code === "23505" ? "That category already exists." : "Category could not be added." }, { status: error?.code === "23505" ? 409 : 500 });

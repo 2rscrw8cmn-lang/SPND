@@ -1,7 +1,7 @@
 "use client";
 
 import { addMonths, format, parseISO } from "date-fns";
-import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Goal, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, TriangleAlert, X, type LucideIcon } from "lucide-react";
+import { Archive, Check, ChevronDown, ChevronLeft, ChevronRight, Goal, Layers3, RotateCcw, ShieldCheck, SlidersHorizontal, Sparkles, TriangleAlert, X, type LucideIcon } from "lucide-react";
 import Link from "next/link";
 import { useMemo, useState } from "react";
 import { BottomSheet } from "@/components/bottom-sheet";
@@ -13,8 +13,6 @@ import type { BudgetCategory, BudgetWorkspace as Workspace } from "@/lib/data";
 import { groupTransactionsByDay } from "@/lib/transaction-groups";
 import { formatCurrency } from "@/lib/utils";
 
-const groups = ["All", "Essentials", "Lifestyle", "Goals"];
-const categoryGroups = ["Essentials", "Lifestyle", "Goals", "Excluded"];
 const colors = ["#9B6CFF", "#FFD24A", "#45D9E1", "#FF705B", "#58A6FF", "#FF5D6C", "#C9FF4A", "#A6ACB8"];
 
 export function BudgetWorkspace({ initialWorkspace }: { initialWorkspace: Workspace }) {
@@ -27,9 +25,12 @@ export function BudgetWorkspace({ initialWorkspace }: { initialWorkspace: Worksp
   const monthDate = parseISO(initialWorkspace.month);
   const selected = categories.find((category) => category.id === selectedId) ?? null;
   const visible = categories.filter((category) => category.isActive && category.showInBudget && !category.isExcluded);
+  const categoryGroups = [...initialWorkspace.categoryGroups].sort((a, b) => a.sortOrder - b.sortOrder).map((group) => group.name);
+  const budgetGroups = categoryGroups.filter((group) => group !== "Excluded");
+  const groups = ["All", ...budgetGroups];
   const totals = useMemo(() => ({ budgeted: visible.reduce((sum, item) => sum + item.budgetedCents, 0), spent: visible.reduce((sum, item) => sum + item.spentCents, 0), pending: visible.reduce((sum, item) => sum + item.pendingCents, 0) }), [visible]);
   const available = initialWorkspace.totals.incomeCents - totals.budgeted;
-  const displayedGroups = (filter === "All" ? groups.slice(1) : [filter]).map((name) => ({ name, categories: sortBudgetCategories(visible.filter((category) => category.categoryGroup === name)) })).filter((group) => group.categories.length);
+  const displayedGroups = (filter === "All" ? budgetGroups : [filter]).map((name) => ({ name, categories: sortBudgetCategories(visible.filter((category) => category.categoryGroup === name)) })).filter((group) => group.categories.length);
   const excluded = categories.filter((category) => !category.isActive || category.isExcluded || !category.showInBudget);
   const alert = sortBudgetCategories(visible).find((category) => category.spentCents + category.pendingCents > category.budgetedCents);
 
@@ -79,7 +80,7 @@ export function BudgetWorkspace({ initialWorkspace }: { initialWorkspace: Worksp
     <section className="budget-group"><div className="section-line"><h2>{filter === "All" ? "Category groups" : filter}</h2><span>{displayedGroups.reduce((count, group) => count + group.categories.length, 0)}</span></div><div className="budget-group-stack">{displayedGroups.length ? displayedGroups.map((group) => <BudgetCategoryGroup categories={group.categories} collapsed={collapsedGroups.includes(group.name)} key={group.name} name={group.name} onSelect={(categoryId) => { setSelectedId(categoryId); setMessage(""); }} onToggle={() => setCollapsedGroups((items) => items.includes(group.name) ? items.filter((item) => item !== group.name) : [...items, group.name])} />) : <p className="compact-empty card">No categories in this group.</p>}</div></section>
     {excluded.length ? <details className="archived-categories"><summary>Excluded & archived <span>{excluded.length}</span></summary>{excluded.map((category) => <button key={category.id} onClick={() => setSelectedId(category.id)}><span>{category.name}</span>{!category.isActive ? <RotateCcw size={17} /> : <ChevronRight size={17} />}</button>)}</details> : null}
     {editingBudget ? <BudgetEditor categories={visible} incomeCents={initialWorkspace.totals.incomeCents} month={initialWorkspace.month} onClose={() => setEditingBudget(false)} onSave={saveMonthlyBudgets} /> : null}
-    {selected ? <CategoryPanel category={selected} categories={visible} month={initialWorkspace.month} message={message} onClose={() => setSelectedId(null)} onSaveCategory={saveCategory} onSaveBudget={saveBudget} onMoveMoney={moveMoney} /> : null}
+    {selected ? <CategoryPanel category={selected} categories={visible} categoryGroups={categoryGroups} month={initialWorkspace.month} message={message} onClose={() => setSelectedId(null)} onSaveCategory={saveCategory} onSaveBudget={saveBudget} onMoveMoney={moveMoney} /> : null}
   </>;
 }
 
@@ -90,9 +91,9 @@ function BudgetCategoryGroup({ categories, collapsed, name, onSelect, onToggle }
   const used = categories.reduce((sum, category) => sum + category.spentCents + category.pendingCents, 0);
   const remaining = budgeted - used;
   const percent = Math.min(100, Math.round(used / Math.max(1, budgeted) * 100));
-  const Icon = budgetGroupIcons[name] ?? Goal;
+  const Icon = budgetGroupIcons[name] ?? Layers3;
 
-  return <section className={`budget-category-group card ${collapsed ? "collapsed" : ""}`}><button className="budget-group-summary" aria-expanded={!collapsed} onClick={onToggle}><span className="budget-group-icon"><Icon size={18} /></span><span className="budget-group-copy"><span><strong>{name}</strong><small>{categories.length} categor{categories.length === 1 ? "y" : "ies"}</small></span><span className="budget-group-amount"><strong>{formatCurrency(used, { compact: true })} / {formatCurrency(budgeted, { compact: true })}</strong><small className={remaining < 0 ? "negative" : ""}>{formatCurrency(Math.abs(remaining), { compact: true })} {remaining < 0 ? "over" : "left"}</small></span><span className="budget-group-progress"><i style={{ width: `${percent}%` }} /></span></span><ChevronDown className="budget-group-chevron" size={18} /></button>{collapsed ? null : <div className="budget-list">{categories.map((category) => <BudgetRow category={category} key={category.id} onSelect={() => onSelect(category.id)} />)}</div>}</section>;
+  return <section className={`budget-category-group card ${collapsed ? "collapsed" : ""}`}><button className="budget-group-summary" aria-expanded={!collapsed} onClick={onToggle}><span className="budget-group-icon"><Icon size={18} /></span><span className="budget-group-copy"><span className="budget-group-topline"><span className="budget-group-title"><strong>{name}</strong><small>{categories.length} categor{categories.length === 1 ? "y" : "ies"}</small></span><span className="budget-group-amount"><strong>{formatCurrency(used, { compact: true })} / {formatCurrency(budgeted, { compact: true })}</strong><small className={remaining < 0 ? "negative" : ""}>{formatCurrency(Math.abs(remaining), { compact: true })} {remaining < 0 ? "over" : "left"}</small></span></span><span className="budget-group-progress"><i style={{ width: `${percent}%` }} /></span></span><ChevronDown className="budget-group-chevron" size={18} /></button>{collapsed ? null : <div className="budget-list">{categories.map((category) => <BudgetRow category={category} key={category.id} onSelect={() => onSelect(category.id)} />)}</div>}</section>;
 }
 
 function BudgetEditor({ categories, incomeCents, month, onClose, onSave }: { categories: BudgetCategory[]; incomeCents: number; month: string; onClose: () => void; onSave: (values: Record<string, number>) => Promise<boolean> }) {
@@ -109,7 +110,7 @@ function BudgetEditor({ categories, incomeCents, month, onClose, onSave }: { cat
   </BottomSheet>;
 }
 
-function CategoryPanel({ category, categories, month, message, onClose, onSaveCategory, onSaveBudget, onMoveMoney }: { category: BudgetCategory; categories: BudgetCategory[]; month: string; message: string; onClose: () => void; onSaveCategory: (value: BudgetCategory) => Promise<boolean>; onSaveBudget: (id: string, cents: number) => Promise<boolean>; onMoveMoney: (from: string, to: string, cents: number) => Promise<boolean> }) {
+function CategoryPanel({ category, categories, categoryGroups, month, message, onClose, onSaveCategory, onSaveBudget, onMoveMoney }: { category: BudgetCategory; categories: BudgetCategory[]; categoryGroups: string[]; month: string; message: string; onClose: () => void; onSaveCategory: (value: BudgetCategory) => Promise<boolean>; onSaveBudget: (id: string, cents: number) => Promise<boolean>; onMoveMoney: (from: string, to: string, cents: number) => Promise<boolean> }) {
   const [mode, setMode] = useState<"view"|"edit"|"move">("view"); const [draft, setDraft] = useState(category); const [amount, setAmount] = useState(""); const [target, setTarget] = useState(categories.find((item) => item.id !== category.id)?.id ?? ""); const [targetPicker, setTargetPicker] = useState(false); const remaining = category.budgetedCents - category.spentCents - category.pendingCents; const transactionGroups = groupTransactionsByDay(category.recentTransactions); const targetCategory = categories.find((item) => item.id === target);
   const status = category.budgetedCents === 0 ? "Not budgeted" : remaining < 0 ? `${formatCurrency(Math.abs(remaining))} over` : `${formatCurrency(remaining)} left`;
   return <><BottomSheet className="category-sheet category-detail-sheet" label={`${category.name} category detail`} onClose={onClose} handleLabel="Drag down to close category detail"><div className="sheet-title"><div className="category-detail-title"><span className="category-disc" style={{ "--category": category.color } as React.CSSProperties}><CategoryIcon name={category.icon} /></span><div><p className="eyebrow">{status}</p><h2>{category.name}</h2></div></div><button className="icon-button" onClick={onClose} aria-label="Close"><X /></button></div>

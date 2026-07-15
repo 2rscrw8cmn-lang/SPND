@@ -198,6 +198,31 @@ test.describe("390px mobile visual QA", () => {
     await page.keyboard.press("Escape");
     await expect(dialog).toBeHidden();
   });
+
+  test("Settings manages custom category groups without leaving the page", async ({ page }) => {
+    await page.goto("/settings");
+    const groupRowLayout = await page.locator(".category-group-row").first().evaluate((element) => {
+      const style = getComputedStyle(element);
+      return { display: style.display, alignItems: style.alignItems, minHeight: Number.parseFloat(style.minHeight) };
+    });
+    expect(groupRowLayout).toEqual({ display: "flex", alignItems: "center", minHeight: 61 });
+    await page.getByLabel("New category group").fill("Giving");
+    await page.getByRole("button", { name: "Add group" }).click();
+    await expect(page.getByText("Giving", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Rename Giving" }).click();
+    await page.getByLabel("Category group name").fill("Generosity");
+    await page.getByRole("button", { name: "Save Giving" }).click();
+    await expect(page.getByText("Generosity", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Delete Generosity" }).click();
+    await expect(page.getByText("Generosity", { exact: true })).toBeHidden();
+  });
+
+  test("Settings sign out control ends the demo session", async ({ page }) => {
+    await page.goto("/settings");
+    await page.getByRole("button", { name: /Sign out/ }).click();
+    await expect(page).toHaveURL(/\/login$/);
+    await expect(page.getByRole("heading", { level: 1, name: "Welcome home." })).toBeVisible();
+  });
 });
 
 async function expectNoHorizontalOverflow(page: Page) {
