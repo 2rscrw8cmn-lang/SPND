@@ -4,6 +4,7 @@ import { normalizeMerchant } from "@/lib/utils";
 import { rowFingerprint, validateEditedRow, type ImportType, type NormalizedImportRow } from "@/lib/imports";
 import { authenticatedHousehold } from "@/lib/server-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { importsEnabled } from "@/lib/env";
 
 const bodySchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reject") }), z.object({ action: z.literal("apply") }),
@@ -12,6 +13,7 @@ const bodySchema = z.discriminatedUnion("action", [
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const auth = await authenticatedHousehold(); if (!auth) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
+  if (!importsEnabled()) return NextResponse.json({ message: "Not found." }, { status: 404 });
   const { id } = await params; const parsed = bodySchema.safeParse(await request.json());
   if (!z.string().uuid().safeParse(id).success || !parsed.success) return NextResponse.json({ message: "Invalid import action." }, { status: 400 });
   const admin = createAdminClient(); const { data: item } = await admin.from("imports").select("id,import_type,status,account_id").eq("id", id).eq("household_id", auth.householdId).maybeSingle();
@@ -52,7 +54,7 @@ async function applyRow(admin: ReturnType<typeof createAdminClient>, householdId
   } else if (type === "budget_template") {
     const categoryId = categories.get(String(value.category).toLowerCase()); if (!categoryId) return "failed"; const { data } = await admin.from("monthly_budgets").upsert({ household_id: householdId, month: value.month, category_id: categoryId, budgeted_cents: Number(value.budgetedCents), updated_at: new Date().toISOString() }, { onConflict: "household_id,month,category_id" }).select("id").single(); entityType = "monthly_budget"; entityId = data?.id as string | null;
   } else if (type === "recurring_bills") {
-    const name = String(value.name); const { data } = await admin.from("recurring_items").upsert({ household_id: householdId, type: "expense", name, merchant_pattern: normalizeMerchant(name), amount_cents: Number(value.amountCents), cadence: String(value.cadence ?? "monthly"), next_due_date: value.date, category_id: categories.get(String(value.category ?? "").toLowerCase()) ?? null, is_confirmed: true, active: true, updated_at: new Date().toISOString() }, { onConflict: "household_id,type,merchant_pattern" }).select("id").single(); entityType = "recurring_item"; entityId = data?.id as string | null;
+    const name = String(value.name); const { data } = await admin.from("recurring_items").upsert({ household_id: householdId, type: "expense", name, merchant_pattern: normalizeMerchant(name), amount_cents: Number(value.amountCents), cadence: String(value.cadence ?? "monthly"), next_due_date: value.date, category_id: categories.get(String(value.category ?? "").toLowerCase()) ?? null, is_confirmed: true, active: true, state: "confirmed", updated_at: new Date().toISOString() }, { onConflict: "household_id,type,merchant_pattern" }).select("id").single(); entityType = "recurring_item"; entityId = data?.id as string | null;
   } else {
     const { data } = await admin.from("planned_items").insert({ household_id: householdId, name: value.name, date: value.date, amount_cents: Number(value.amountCents), type: type === "income" ? "income" : "expense", category_id: categories.get(String(value.category ?? "").toLowerCase()) ?? null }).select("id").single(); entityType = "planned_item"; entityId = data?.id as string | null;
   }

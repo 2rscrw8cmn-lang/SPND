@@ -8,7 +8,6 @@ const routes = [
   { path: "/activity", name: "activity", heading: "Activity" },
   { path: "/plan", name: "plan", heading: "Plan" },
   { path: "/settings", name: "settings", heading: "Settings" },
-  { path: "/settings/imports", name: "imports", heading: "Import inbox" },
   { path: "/settings/diagnostics", name: "diagnostics", heading: "Reconciliation" },
 ] as const;
 
@@ -41,14 +40,13 @@ test.describe("390px mobile visual QA", () => {
     await capture(page, testInfo, "budget-editor");
     await swipe(page, budgetEditor.getByRole("button", { name: "Drag down to close monthly budget editor" }), 2, 140);
     await expect(budgetEditor).toBeHidden();
-    await expect(page.getByRole("button", { name: "Add category" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Add category" })).toBeVisible();
     await page.getByRole("button", { name: /Groceries/ }).click();
     const detail = page.getByRole("dialog", { name: "Groceries category detail" });
     await expect(detail).toBeVisible();
     await expect(detail.getByText("Recent transactions")).toBeVisible();
     await expect(detail.getByText("Publix")).toBeVisible();
-    await expect(detail.getByRole("button", { name: "Move money" })).toHaveCount(0);
-    await expect(detail.getByRole("button", { name: "Edit monthly budget" })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Move money" })).toBeVisible();
     await expect(detail.getByText("Category settings", { exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await capture(page, testInfo, "budget-category-sheet");
@@ -67,7 +65,7 @@ test.describe("390px mobile visual QA", () => {
 
   test("Home category rows open matching category detail", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /Groceries/ }).click();
+    await page.locator(".budget-stack").getByRole("button", { name: /Groceries/ }).click();
     await expect(page.getByRole("dialog", { name: "Groceries category detail" })).toBeVisible();
     await expect(page.getByRole("dialog", { name: "Groceries category detail" }).getByText("Publix")).toBeVisible();
     await page.keyboard.press("Escape");
@@ -116,7 +114,7 @@ test.describe("390px mobile visual QA", () => {
 
     await page.goto("/budget");
     await expect(page.locator(".budget-summary-ring")).toBeVisible();
-    await expect(page.getByText("available after pending")).toBeVisible();
+    await expect(page.getByText("expected income minus assigned")).toBeVisible();
     const essentials = page.getByRole("button", { name: /Essentials.*categories/ });
     await essentials.click();
     await expect(page.getByRole("button", { name: /Groceries/ })).toBeHidden();
@@ -208,16 +206,9 @@ test.describe("390px mobile visual QA", () => {
     await expect(detail.locator(".split-total")).toHaveClass(/valid/);
   });
 
-  test("imports require a reviewed confirmation before apply", async ({ page }) => {
+  test("experimental imports stay unavailable in the release configuration", async ({ page }) => {
     await page.goto("/settings/imports");
-    await expect(page.getByText("Ready to apply")).toBeVisible();
-    await page.getByRole("button", { name: "Review and apply" }).click();
-    const dialog = page.getByRole("dialog", { name: "Apply august-budget.csv" });
-    await expect(dialog).toContainText("Apply 2 rows?");
-    await expect(dialog).toContainText("Groceries");
-    await expect(dialog.getByRole("button", { name: "Confirm and apply" })).toBeVisible();
-    await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
+    await expect(page.getByRole("heading", { level: 1, name: "Import inbox" })).toHaveCount(0);
   });
 
   test("Settings manages custom category groups without leaving the page", async ({ page }) => {

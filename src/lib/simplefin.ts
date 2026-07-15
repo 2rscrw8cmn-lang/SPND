@@ -5,35 +5,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/crypto";
 import { findPendingMatch, pendingMatchKey, reconcileAllocationAmounts, sourceFingerprint, type ImportedTransaction } from "@/lib/reconcile";
 import { normalizeMerchant } from "@/lib/utils";
-
-type SimpleFinTransaction = { id?: string; posted: number; amount: string; description: string; pending?: boolean };
-type SimpleFinAccount = {
-  id: string;
-  name: string;
-  currency?: string;
-  balance: string;
-  "available-balance"?: string;
-  "balance-date"?: number;
-  org?: { name?: string };
-  transactions?: SimpleFinTransaction[];
-};
-type SimpleFinResponse = { accounts?: SimpleFinAccount[]; errors?: string[]; errlist?: Array<{ code?: string; msg?: string; message?: string }> };
-
-function sanitizedProviderIssues(payload: SimpleFinResponse) {
-  const raw = [
-    ...(payload.errors ?? []),
-    ...(payload.errlist ?? []).map((item) => {
-      if (item.code === "con.auth") return "An institution connection needs reauthentication in SimpleFIN.";
-      if (item.code === "act.failed" || item.code === "act.missingdata") return "SimpleFIN could not retrieve one institution account completely. Try again later.";
-      if (item.code === "gen.auth") return "SimpleFIN rejected the connection authorization.";
-      return item.msg ?? item.message ?? item.code ?? "SimpleFIN reported an account issue.";
-    }),
-  ];
-  return raw
-    .map((message) => message.replace(/https?:\/\/\S+/gi, "provider URL").replace(/[A-Za-z0-9._%+-]+:[^\s@]+@/g, "provider credentials@"))
-    .filter(Boolean)
-    .slice(0, 3);
-}
+import { buildSyncWindows, connectionNames, sanitizeProviderIssues, transactionDate, type SimpleFinResponse } from "@/lib/simplefin-core";
 
 function cents(amount: string) {
   const parsed = Number(amount);
@@ -50,6 +22,7 @@ function accountsUrl(accessUrl: string, start: Date, end: Date) {
   access.pathname = `${access.pathname.replace(/\/$/, "")}/accounts`;
   const url = access;
   url.searchParams.set("version", "2");
+  url.searchParams.set("pending", "1");
   url.searchParams.set("start-date", String(Math.floor(start.getTime() / 1000)));
   url.searchParams.set("end-date", String(Math.floor(end.getTime() / 1000)));
   return {
@@ -98,15 +71,15 @@ export async function syncConnection(connectionId: string, initial = false) {
 
   let accountCount = 0;
   const syncedAccountIds = new Set<string>();
-  let transactionCount = 0;
+  const receivedTransactionKeys = new Set<string>();
+  const createdTransactionKeys = new Set<string>();
+  const updatedTransactionKeys = new Set<string>();
+  const reconciledTransactionIds = new Set<string>();
+  const knownFingerprintsByAccount = new Map<string, Set<string>>();
+  const providerWarnings = new Set<string>();
   try {
     const now = new Date();
-    const windows: Array<[Date, Date]> = [];
-    if (initial) {
-      for (let end = now; windows.length < 4; end = subDays(end, 90)) windows.push([subDays(end, 89), end]);
-    } else {
-      windows.push([subDays(now, 14), now]);
-    }
+    const windows = buildSyncWindows(now, initial);
 
     const [{ data: rules }, { data: categories }] = await Promise.all([
       admin.from("merchant_rules").select("normalized_merchant,category_id").eq("household_id", connection.household_id).eq("active", true).order("priority", { ascending: false }),
@@ -115,25 +88,33 @@ export async function syncConnection(connectionId: string, initial = false) {
     const ruleMap = new Map((rules ?? []).map((rule) => [rule.normalized_merchant as string, rule.category_id as string]));
     const unsortedId = (categories ?? []).find((category) => category.name === "Unsorted")?.id as string | undefined;
 
-    for (const [start, end] of windows) {
-      const payload = await fetchWindow(accessUrl, start, end);
+    for (const { start, endExclusive } of windows) {
+      const payload = await fetchWindow(accessUrl, start, endExclusive);
       if (payload.errors?.length || payload.errlist?.length) {
-        const issues = sanitizedProviderIssues(payload);
-        throw new Error(issues.length ? issues.join(" ") : "SimpleFIN reported an account connection issue.");
+        const issues = sanitizeProviderIssues(payload);
+        for (const issue of issues) providerWarnings.add(issue);
+        if (!(payload.accounts?.length)) throw new Error(issues.length ? issues.join(" ") : "SimpleFIN reported an account connection issue.");
       }
+      const institutionNames = connectionNames(payload);
       for (const providerAccount of payload.accounts ?? []) {
+        const providerConnectionId = providerAccount.conn_id ?? "";
+        if (providerConnectionId) {
+          const { data: legacyAccount } = await admin.from("accounts").select("id").eq("household_id", connection.household_id).eq("provider_account_id", providerAccount.id).eq("provider_connection_id", "").maybeSingle();
+          if (legacyAccount) await admin.from("accounts").update({ provider_connection_id: providerConnectionId }).eq("id", legacyAccount.id);
+        }
         const { data: account, error: accountError } = await admin.from("accounts").upsert({
           household_id: connection.household_id,
           connection_id: connection.id,
+          provider_connection_id: providerConnectionId,
           provider_account_id: providerAccount.id,
-          institution_name: providerAccount.org?.name ?? null,
+          institution_name: (providerConnectionId ? institutionNames.get(providerConnectionId) : undefined) ?? providerAccount.conn_name ?? null,
           name: providerAccount.name,
           currency: providerAccount.currency ?? "USD",
           current_balance_cents: cents(providerAccount.balance),
           available_balance_cents: providerAccount["available-balance"] ? cents(providerAccount["available-balance"]) : null,
           balance_as_of: providerAccount["balance-date"] ? new Date(providerAccount["balance-date"] * 1000).toISOString() : now.toISOString(),
           updated_at: now.toISOString(),
-        }, { onConflict: "household_id,provider_account_id" }).select("id").single();
+        }, { onConflict: "household_id,provider_connection_id,provider_account_id" }).select("id").single();
         if (accountError || !account) throw new Error("Unable to save an imported account.");
         syncedAccountIds.add(account.id as string);
         accountCount = syncedAccountIds.size;
@@ -151,23 +132,39 @@ export async function syncConnection(connectionId: string, initial = false) {
           databaseId: item.id as string,
         }));
 
+        let knownFingerprints = knownFingerprintsByAccount.get(account.id as string);
+        if (!knownFingerprints) {
+          const { data: existingTransactions } = await admin.from("transactions").select("source_fingerprint").eq("account_id", account.id);
+          knownFingerprints = new Set((existingTransactions ?? []).map((item) => item.source_fingerprint as string));
+          knownFingerprintsByAccount.set(account.id as string, knownFingerprints);
+        }
+
         for (const providerTransaction of providerAccount.transactions ?? []) {
+          const date = transactionDate(providerTransaction);
+          if (!date) {
+            providerWarnings.add("SimpleFIN returned a pending transaction without a usable transaction date; it was skipped for review.");
+            continue;
+          }
           const transaction: ImportedTransaction = {
             accountId: account.id,
             providerId: providerTransaction.id,
-            date: new Date(providerTransaction.posted * 1000).toISOString(),
+            date,
             amountCents: cents(providerTransaction.amount),
             merchant: providerTransaction.description.trim() || "Unknown merchant",
             status: providerTransaction.pending ? "pending" : "posted",
           };
-          const match = transaction.status === "posted" ? findPendingMatch(transaction, pending) : undefined;
+          const fingerprint = sourceFingerprint(transaction);
+          const receivedKey = `${account.id}:${fingerprint}`;
+          receivedTransactionKeys.add(receivedKey);
+          const existedBeforeSync = knownFingerprints.has(fingerprint);
+          const match = transaction.status === "posted" ? findPendingMatch(transaction, pending.filter((candidate) => candidate.providerId !== transaction.providerId)) : undefined;
           const matchId = match && "databaseId" in match ? String(match.databaseId) : null;
           const normalized = normalizeMerchant(transaction.merchant);
           const { data: savedTransaction, error: transactionError } = await admin.from("transactions").upsert({
             household_id: connection.household_id,
             account_id: account.id,
             provider_transaction_id: providerTransaction.id ?? null,
-            source_fingerprint: sourceFingerprint(transaction),
+            source_fingerprint: fingerprint,
             pending_match_key: pendingMatchKey(transaction),
             replaces_pending_transaction_id: matchId,
             transacted_at: transaction.date,
@@ -181,6 +178,10 @@ export async function syncConnection(connectionId: string, initial = false) {
             updated_at: now.toISOString(),
           }, { onConflict: "account_id,source_fingerprint", ignoreDuplicates: false }).select("id").single();
           if (transactionError || !savedTransaction) throw new Error("Unable to save an imported transaction.");
+          knownFingerprints.add(fingerprint);
+          if (!createdTransactionKeys.has(receivedKey)) {
+            (existedBeforeSync ? updatedTransactionKeys : createdTransactionKeys).add(receivedKey);
+          }
 
           let { data: existingAllocation } = await admin.from("transaction_allocations").select("id").eq("transaction_id", savedTransaction.id).limit(1).maybeSingle();
           if (matchId) {
@@ -212,16 +213,30 @@ export async function syncConnection(connectionId: string, initial = false) {
           if (matchId) {
             await admin.from("transactions").update({ excluded: true, superseded_by_transaction_id: savedTransaction.id, updated_at: now.toISOString() }).eq("id", matchId).eq("status", "pending");
             await admin.from("audit_events").insert({ household_id: connection.household_id, entity_type: "transaction", entity_id: savedTransaction.id, action: "pending_reconciled", metadata: { pendingTransactionId: matchId } });
+            reconciledTransactionIds.add(savedTransaction.id as string);
           }
-          transactionCount += 1;
         }
       }
     }
     await detectRecurringCandidates(connection.household_id as string);
     const finishedAt = new Date().toISOString();
-    await admin.from("financial_connections").update({ status: "active", last_synced_at: finishedAt, last_error: null, updated_at: finishedAt }).eq("id", connection.id);
-    if (run) await admin.from("sync_runs").update({ status: "success", finished_at: finishedAt, summary: { accountCount, transactionCount } }).eq("id", run.id);
-    return { accountCount, transactionCount };
+    const warnings = [...providerWarnings];
+    const partial = warnings.length > 0;
+    const summary = {
+      accountCount,
+      transactionCount: receivedTransactionKeys.size,
+      receivedCount: receivedTransactionKeys.size,
+      createdCount: createdTransactionKeys.size,
+      updatedCount: updatedTransactionKeys.size,
+      reconciledCount: reconciledTransactionIds.size,
+      partial,
+      warnings,
+    };
+    const connectionUpdate: Record<string, unknown> = { status: partial ? "error" : "active", last_error: partial ? warnings.join(" ") : null, updated_at: finishedAt };
+    if (!partial) connectionUpdate.last_synced_at = finishedAt;
+    await admin.from("financial_connections").update(connectionUpdate).eq("id", connection.id);
+    if (run) await admin.from("sync_runs").update({ status: partial ? "error" : "success", finished_at: finishedAt, summary, sanitized_error: partial ? warnings.join(" ") : null }).eq("id", run.id);
+    return summary;
   } catch (error) {
     const message = error instanceof Error && !/https?:\/\//i.test(error.message) ? error.message : "SimpleFIN sync failed.";
     const finishedAt = new Date().toISOString();
@@ -253,18 +268,20 @@ async function detectRecurringCandidates(householdId: string) {
     if (!monthly || !stableAmount) continue;
     const last = recent.at(-1)!;
     const nextDue = new Date(last.date); nextDue.setMonth(nextDue.getMonth() + 1);
-    await admin.from("recurring_items").upsert({
-      household_id: householdId,
-      type: last.amount >= 0 ? "income" : "expense",
+    const type = last.amount >= 0 ? "income" : "expense";
+    const inference = {
       name: last.merchant,
-      merchant_pattern: pattern,
       amount_cents: Math.round(Math.abs(average)),
       cadence: "monthly",
       next_due_date: nextDue.toISOString().slice(0, 10),
-      is_confirmed: false,
-      active: true,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "household_id,type,merchant_pattern" });
+    };
+    const { data: existing } = await admin.from("recurring_items").select("id").eq("household_id", householdId).eq("type", type).eq("merchant_pattern", pattern).maybeSingle();
+    if (existing) {
+      await admin.from("recurring_items").update(inference).eq("id", existing.id);
+    } else {
+      await admin.from("recurring_items").insert({ household_id: householdId, type, merchant_pattern: pattern, ...inference, is_confirmed: false, active: true });
+    }
   }
 }
 

@@ -4,6 +4,7 @@ import { extractText, getDocumentProxy } from "unpdf";
 import { fileChecksum, importTypes, parseImportFile, rowFingerprint, validateEditedRow, type ImportType, type NormalizedImportRow } from "@/lib/imports";
 import { authenticatedHousehold } from "@/lib/server-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { importsEnabled } from "@/lib/env";
 
 const typeSchema = z.enum(importTypes);
 const allowedExtensions = [".csv", ".xlsx", ".pdf"];
@@ -11,6 +12,7 @@ const allowedExtensions = [".csv", ".xlsx", ".pdf"];
 export async function POST(request: Request) {
   const auth = await authenticatedHousehold();
   if (!auth) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
+  if (!importsEnabled()) return NextResponse.json({ message: "Not found." }, { status: 404 });
   const form = await request.formData(); const file = form.get("file"); const parsedType = typeSchema.safeParse(form.get("importType")); const accountId = String(form.get("accountId") ?? "");
   if (!(file instanceof File) || !parsedType.success) return NextResponse.json({ message: "Choose a supported file and import type." }, { status: 400 });
   if (file.size <= 0 || file.size > 10 * 1024 * 1024) return NextResponse.json({ message: "Files must be between 1 byte and 10 MB." }, { status: 400 });

@@ -27,6 +27,7 @@ SPND is a dark-only, mobile-first web application for Zack and Stephanie. It use
 - [Design reference image guide](docs/11-design-reference-images.md)
 - [Authoritative accounting rules](docs/12-accounting-rules.md)
 - [Final stabilization and release plan](docs/13-final-stabilization-plan.md)
+- [Release runbook](docs/14-release-runbook.md)
 
 ## Recommended stack
 
@@ -37,3 +38,5 @@ SPND is a dark-only, mobile-first web application for Zack and Stephanie. It use
 - Tailwind CSS + shadcn/ui primitives + Lucide icons
 
 Do not add bank login forms, payments, transfers, card issuance, or financial advice. SPND is a private read-only budgeting tool.
+
+General file and PDF imports are retained as an experimental internal feature and are disabled by default. They are available only when the server explicitly sets `SPND_ENABLE_IMPORTS=true`; they are not part of the supported daily workflow.

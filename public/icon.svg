@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="SPND">
+  <rect width="512" height="512" rx="112" fill="#17191f"/>
+  <path d="M143 160h185c31 0 56 25 56 56v80c0 31-25 56-56 56H184c-31 0-56-25-56-56V175c0-8 7-15 15-15Z" fill="#c9ff4a"/>
+  <path d="M191 216h130c9 0 16 7 16 16s-7 16-16 16H191c-9 0-16-7-16-16s7-16 16-16Zm0 48h82c9 0 16 7 16 16s-7 16-16 16h-82c-9 0-16-7-16-16s7-16 16-16Z" fill="#17191f"/>
+  <circle cx="329" cy="280" r="17" fill="#17191f"/>
+</svg>

@@ -13,6 +13,9 @@ export async function POST() {
   if (connection.status === "active" && connection.last_synced_at && Date.now() - new Date(connection.last_synced_at as string).getTime() < 5 * 60_000) {
     return NextResponse.json({ message: "A sync completed recently. Try again in a few minutes." }, { status: 429 });
   }
-  try { const result = await syncConnection(connection.id as string); return NextResponse.json({ message: "Sync complete.", ...result }); }
+  try {
+    const result = await syncConnection(connection.id as string);
+    return NextResponse.json({ message: result.partial ? "Sync completed with provider warnings." : "Sync complete.", ...result }, { status: result.partial ? 207 : 200 });
+  }
   catch (error) { return NextResponse.json({ message: error instanceof Error && !/https?:\/\//i.test(error.message) ? error.message : "SimpleFIN sync needs attention." }, { status: 502 }); }
 }

@@ -7,7 +7,7 @@ export const metadata: Metadata = { title: "Activity" };
 
 export default async function ActivityPage({ searchParams }: { searchParams: Promise<{ category?: string; month?: string }> }) {
   const { category, month } = await searchParams;
-  const [transactions, workspace, accounts] = await Promise.all([getActivityData(100, month), getBudgetWorkspace(month), getAccountsData()]);
+  const [transactions, workspace, accounts] = await Promise.all([getActivityData(50, month), getBudgetWorkspace(month), getAccountsData()]);
   return (
     <PageShell>
       <h1 className="page-title">Activity</h1>

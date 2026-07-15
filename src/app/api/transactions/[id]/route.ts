@@ -41,11 +41,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     const undoableEvents = undoIndex < 0 ? recentEvents ?? [] : (recentEvents ?? []).slice(0, undoIndex);
     const snapshot = undoableEvents.map((event) => (event.metadata as { before?: Snapshot } | null)?.before).find((value): value is Snapshot => Boolean(value));
     if (!snapshot) return NextResponse.json({ message: "There is no edit to undo." }, { status: 409 });
-    const { error } = await supabase.from("transactions").update({ display_name: snapshot.displayName, note: snapshot.note, excluded: snapshot.excluded, is_transfer: snapshot.isTransfer, is_recurring: snapshot.isRecurring, review_status: snapshot.reviewStatus, reviewed_at: snapshot.reviewedAt, reviewed_by: snapshot.reviewedBy, updated_at: new Date().toISOString() }).eq("id", id).eq("household_id", auth.householdId);
+    const { error } = await supabase.rpc("update_transaction_with_allocations", { p_household_id: auth.householdId, p_transaction_id: id, p_updates: { display_name: snapshot.displayName, note: snapshot.note, excluded: snapshot.excluded, is_transfer: snapshot.isTransfer, is_recurring: snapshot.isRecurring, review_status: snapshot.reviewStatus }, p_allocations: snapshot.allocations.map((item) => ({ category_id: item.categoryId, amount_cents: item.amountCents })) });
     if (error) return NextResponse.json({ message: "The previous edit could not be restored." }, { status: 500 });
-    await replaceAllocations(supabase, auth.householdId, id, snapshot.allocations);
     await supabase.from("audit_events").insert({ household_id: auth.householdId, actor_user_id: auth.userId, entity_type: "transaction", entity_id: id, action: "undone", metadata: { restored: snapshot } });
-    return NextResponse.json({ message: "Last transaction edit undone." });
+    return NextResponse.json({ message: "Last transaction edit undone.", restored: snapshot });
   }
 
   let requestedAllocations = body.data.allocations;
@@ -65,39 +64,27 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const now = new Date().toISOString();
-  const updates: Record<string, unknown> = { updated_at: now };
+  const updates: Record<string, unknown> = {};
   if (body.data.displayName !== undefined) updates.display_name = body.data.displayName;
   if (body.data.note !== undefined) updates.note = body.data.note;
   if (body.data.excluded !== undefined) updates.excluded = body.data.excluded;
   if (body.data.isTransfer !== undefined) { updates.is_transfer = body.data.isTransfer; if (body.data.isTransfer) updates.excluded = true; }
   if (body.data.isRecurring !== undefined) updates.is_recurring = body.data.isRecurring;
-  if (body.data.reviewed !== undefined) { updates.review_status = body.data.reviewed ? "reviewed" : "needs_review"; updates.reviewed_at = body.data.reviewed ? now : null; updates.reviewed_by = body.data.reviewed ? auth.userId : null; }
-  if (body.data.excluded === true || body.data.isTransfer === true) { updates.review_status = "reviewed"; updates.reviewed_at = now; updates.reviewed_by = auth.userId; }
-  const { error: updateError } = await supabase.from("transactions").update(updates).eq("id", id).eq("household_id", auth.householdId);
-  if (updateError) return NextResponse.json({ message: "Transaction could not be updated." }, { status: 500 });
-  if (requestedAllocations) {
-    const allocationError = await replaceAllocations(supabase, auth.householdId, id, requestedAllocations);
-    if (allocationError) return NextResponse.json({ message: "Transaction allocations could not be saved." }, { status: 500 });
-  }
+  if (body.data.reviewed !== undefined) updates.review_status = body.data.reviewed ? "reviewed" : "needs_review";
+  if (body.data.excluded === true || body.data.isTransfer === true) updates.review_status = "reviewed";
+  const { error: updateError } = await supabase.rpc("update_transaction_with_allocations", { p_household_id: auth.householdId, p_transaction_id: id, p_updates: updates, p_allocations: requestedAllocations ? requestedAllocations.map((item) => ({ category_id: item.categoryId, amount_cents: item.amountCents })) : null });
+  if (updateError) return NextResponse.json({ message: "Transaction and category allocations could not be saved." }, { status: 500 });
   if (body.data.alwaysCategorize && body.data.categoryId) {
     await supabase.from("merchant_rules").upsert({ household_id: auth.householdId, merchant_pattern: transaction.merchant, normalized_merchant: normalizeMerchant(transaction.merchant as string), category_id: body.data.categoryId, priority: 1000, active: true, created_by: auth.userId, updated_at: now }, { onConflict: "household_id,normalized_merchant" });
   }
   if (body.data.isRecurring) {
     const amount = Math.abs(Number(transaction.amount_cents));
     const nextDue = addMonths(new Date(transaction.transacted_at as string), 1);
-    await supabase.from("recurring_items").upsert({ household_id: auth.householdId, type: Number(transaction.amount_cents) >= 0 ? "income" : "expense", name: transaction.merchant, merchant_pattern: normalizeMerchant(transaction.merchant as string), amount_cents: amount, cadence: "monthly", next_due_date: format(nextDue, "yyyy-MM-dd"), is_confirmed: true, active: true, updated_at: now }, { onConflict: "household_id,type,merchant_pattern" });
+    await supabase.from("recurring_items").upsert({ household_id: auth.householdId, type: Number(transaction.amount_cents) >= 0 ? "income" : "expense", name: transaction.merchant, merchant_pattern: normalizeMerchant(transaction.merchant as string), amount_cents: amount, cadence: "monthly", next_due_date: format(nextDue, "yyyy-MM-dd"), is_confirmed: true, active: true, state: "confirmed", updated_at: now }, { onConflict: "household_id,type,merchant_pattern" });
   } else if (body.data.isRecurring === false) {
-    await supabase.from("recurring_items").update({ active: false, updated_at: now }).eq("household_id", auth.householdId).eq("type", Number(transaction.amount_cents) >= 0 ? "income" : "expense").eq("merchant_pattern", normalizeMerchant(transaction.merchant as string));
+    await supabase.from("recurring_items").update({ active: false, state: "inactive", updated_at: now }).eq("household_id", auth.householdId).eq("type", Number(transaction.amount_cents) >= 0 ? "income" : "expense").eq("merchant_pattern", normalizeMerchant(transaction.merchant as string));
   }
   const actions = [body.data.displayName !== undefined ? "display_name_changed" : null, body.data.allocations ? "split" : null, body.data.categoryId !== undefined ? "categorized" : null, body.data.excluded !== undefined ? "exclusion_changed" : null, body.data.isTransfer !== undefined ? "transfer_changed" : null, body.data.isRecurring !== undefined ? "recurring_changed" : null, body.data.reviewed !== undefined ? "review_changed" : null, body.data.alwaysCategorize ? "merchant_rule_created" : null].filter(Boolean);
   await supabase.from("audit_events").insert({ household_id: auth.householdId, actor_user_id: auth.userId, entity_type: "transaction", entity_id: id, action: "edited", metadata: { before, actions, categoryId: body.data.categoryId, splitCount: body.data.allocations?.length } });
   return NextResponse.json({ message: body.data.reviewed ? "Transaction reviewed." : "Transaction updated." });
-}
-
-async function replaceAllocations(supabase: Awaited<ReturnType<typeof createClient>>, householdId: string, transactionId: string, allocations: Array<{ categoryId: string; amountCents: number }>) {
-  const { error: deleteError } = await supabase.from("transaction_allocations").delete().eq("transaction_id", transactionId).eq("household_id", householdId);
-  if (deleteError) return deleteError;
-  if (!allocations.length) return null;
-  const { error } = await supabase.from("transaction_allocations").insert(allocations.map((allocation) => ({ household_id: householdId, transaction_id: transactionId, category_id: allocation.categoryId, amount_cents: allocation.amountCents, source: "manual" })));
-  return error;
 }

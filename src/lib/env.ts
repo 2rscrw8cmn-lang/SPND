@@ -31,3 +31,6 @@ export function getServerEnv() {
 
 export const isDemoMode = process.env.SPND_DEMO_MODE === "true";
 
+export function importsEnabled() {
+  return process.env.SPND_ENABLE_IMPORTS === "true";
+}

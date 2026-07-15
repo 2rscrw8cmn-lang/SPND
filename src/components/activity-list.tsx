@@ -3,7 +3,7 @@
 import { format, parseISO } from "date-fns";
 import { BadgeCheck, CheckCheck, CopyCheck, RotateCcw, Search, SlidersHorizontal, X } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CategoryPickerSheet } from "@/components/category-picker";
 import { TransactionDetail } from "@/components/transaction-detail";
 import { TransactionRow } from "@/components/transaction-row";
@@ -36,6 +36,9 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
   const [toast, setToast] = useState<Toast | null>(null);
   const [busyDay, setBusyDay] = useState<string | null>(null);
   const [busyDuplicate, setBusyDuplicate] = useState<string | null>(null);
+  const [nextCursor, setNextCursor] = useState(initialTransactions.length === 50 ? initialTransactions.at(-1)?.isoDate ?? null : null);
+  const [loadingPage, setLoadingPage] = useState(false);
+  const firstQuery = useRef(true);
   const advancedFilterCount = [categoryFilter, accountFilter, dateFilter].filter(Boolean).length;
 
   const matches = useCallback((transaction: ActivityTransaction) => {
@@ -56,6 +59,19 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
   const filtered = useMemo(() => transactions.filter(matches), [matches, transactions]);
   const groups = useMemo(() => groupTransactionsByDay(filtered), [filtered]);
   const duplicateGroups = useMemo(() => findPotentialDuplicates(transactions), [transactions]);
+
+  const fetchPage = useCallback(async (append: boolean) => {
+    setLoadingPage(true); const params = new URLSearchParams();
+    if (query.trim()) params.set("q", query.trim()); if (filter !== "all") params.set("filter", filter); if (categoryFilter && categoryFilter !== "unsorted") params.set("category", categoryFilter); if (accountFilter) params.set("account", accountFilter); if (dateFilter) params.set("date", dateFilter); if (selectedMonth) params.set("month", selectedMonth); if (append && nextCursor) params.set("before", nextCursor);
+    const response = await fetch(`/api/activity?${params}`); const body = await response.json() as { transactions?: ActivityTransaction[]; nextCursor?: string | null };
+    if (response.ok && body.transactions) { setTransactions((items) => append ? [...items, ...body.transactions!.filter((item) => !items.some((existing) => existing.id === item.id))] : body.transactions!); setNextCursor(body.nextCursor ?? null); }
+    setLoadingPage(false);
+  }, [accountFilter, categoryFilter, dateFilter, filter, nextCursor, query, selectedMonth]);
+
+  useEffect(() => {
+    if (firstQuery.current) { firstQuery.current = false; return; }
+    const timer = window.setTimeout(() => { void fetchPage(false); }, 300); return () => window.clearTimeout(timer);
+  }, [accountFilter, categoryFilter, dateFilter, filter, query, selectedMonth]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function persistReview(transaction: ActivityTransaction, reviewed: boolean) {
     const response = await fetch(`/api/transactions/${transaction.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ reviewed }) });
@@ -109,11 +125,12 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
 
   async function chooseCategory(transaction: ActivityTransaction, category: BudgetCategory | null) {
     const original = transaction;
-    const updated = { ...transaction, categoryId: category?.id ?? "", category: category?.name ?? "Unsorted", color: category?.color ?? "#A6ACB8", allocations: category ? [{ categoryId: category.id, category: category.name, amountCents: transaction.amountCents }] : [] };
+    const updated = { ...transaction, categoryId: category?.id ?? "", category: category?.name ?? "Unsorted", color: category?.color ?? "#A6ACB8", reviewStatus: "reviewed" as const, reviewedAt: new Date().toISOString(), allocations: category ? [{ categoryId: category.id, category: category.name, amountCents: transaction.amountCents }] : [] };
     setTransactions((items) => items.map((item) => item.id === transaction.id ? updated : item));
     setQuickCategory(null);
     setToast({ message: `${transaction.merchant} moved to ${updated.category}.` });
-    const response = await fetch(`/api/transactions/${transaction.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ categoryId: category?.id ?? null }) });
+    const categorizeAndReview = transaction.reviewStatus === "needs_review";
+    const response = await fetch(`/api/transactions/${transaction.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ categoryId: category?.id ?? null, reviewed: categorizeAndReview }) });
     if (!response.ok) {
       setTransactions((items) => items.map((item) => item.id === transaction.id ? original : item));
       setToast({ message: "Category could not be saved. The previous category was restored." });
@@ -140,13 +157,13 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
 
     {duplicateGroups.length ? <details className="duplicate-review card"><summary><span><CopyCheck size={18} /><span><strong>{duplicateGroups.length} possible duplicate{duplicateGroups.length === 1 ? "" : " groups"}</strong><small>Same merchant, amount, and account within three days</small></span></span><span>Review</span></summary><div className="duplicate-review-list">{duplicateGroups.map((group) => <article key={group.key}><div><strong>{group.canonical.merchant}</strong><span>{formatCurrency(group.canonical.amountCents, { signed: true })} · {group.duplicates.length + 1} matching transactions</span></div><button className="secondary-button" disabled={busyDuplicate === group.key} onClick={() => void mergeDuplicates(group)}><CopyCheck size={16} /> {busyDuplicate === group.key ? "Merging…" : `Keep one, merge ${group.duplicates.length}`}</button></article>)}</div></details> : null}
 
-    {groups.length ? <div className="activity-groups">{groups.map((group) => {
+    {groups.length ? <><div className="activity-groups">{groups.map((group) => {
       const needsReview = group.transactions.filter((transaction) => transaction.reviewStatus === "needs_review" && !transaction.excluded).length;
       const dayTotal = group.transactions.reduce((sum, transaction) => sum + transaction.amountCents, 0);
       return <section className="activity-day-group" key={group.key} aria-labelledby={`day-${group.key}`}><header className="activity-day-heading"><div><h2 id={`day-${group.key}`}>{group.label}</h2><span>{group.transactions.length} transaction{group.transactions.length === 1 ? "" : "s"} · {formatCurrency(dayTotal, { signed: true })}</span></div>{needsReview ? <button disabled={busyDay === group.key} onClick={() => void reviewDay(group.key, group.transactions)}><CheckCheck size={15} /> {busyDay === group.key ? "Reviewing…" : `Review ${needsReview}`}</button> : <span className="day-reviewed"><BadgeCheck size={15} /> Reviewed</span>}</header><div className="card activity-day-card">{group.transactions.map((transaction) => <TransactionRow transaction={transaction} key={transaction.id} hideDate onSelect={() => setSelected(transaction)} onReview={() => review(transaction)} onChooseCategory={() => setQuickCategory(transaction)} />)}</div></section>;
-    })}</div> : <div className="empty-state card"><h2>No activity found</h2><p>{selectedMonth ? "There are no transactions in this month." : "Try a different merchant, category, account, date, or filter."}</p></div>}
+    })}</div>{nextCursor ? <button className="secondary-button activity-load-more" disabled={loadingPage} onClick={() => void fetchPage(true)}>{loadingPage ? "Loading…" : "Load more"}</button> : <p className="activity-end">End of activity</p>}</> : <div className="empty-state card"><h2>No activity found</h2><p>{selectedMonth ? "There are no transactions in this month." : "Try a different merchant, category, account, date, or filter."}</p></div>}
     {selected ? <TransactionDetail key={selected.id} transaction={selected} categories={categories} onClose={() => setSelected(null)} onUpdated={detailUpdated} /> : null}
-    {quickCategory ? <CategoryPickerSheet categories={categories} eyebrow={quickCategory.amountCents > 0 ? "Income category" : "Quick category"} label={`Choose category for ${quickCategory.merchant}`} onClose={() => setQuickCategory(null)} onSelect={(category) => void chooseCategory(quickCategory, category)} selectedId={quickCategory.categoryId} title={quickCategory.merchant} /> : null}
+    {quickCategory ? <CategoryPickerSheet categories={categories.filter((category) => quickCategory.amountCents > 0 ? category.behaviorType === "income" : category.behaviorType !== "income")} eyebrow={quickCategory.reviewStatus === "needs_review" ? "Categorize and review" : quickCategory.amountCents > 0 ? "Income category" : "Quick category"} label={`Choose category for ${quickCategory.merchant}`} onClose={() => setQuickCategory(null)} onSelect={(category) => void chooseCategory(quickCategory, category)} selectedId={quickCategory.categoryId} title={quickCategory.merchant} /> : null}
     {toast ? <div className="undo-toast" role="status"><span>{toast.message}</span>{toast.undo ? <button onClick={() => { const item = toast.undo; setToast(null); if (item) void undoReview(item); }}>Undo</button> : <button aria-label="Dismiss message" onClick={() => setToast(null)}><X /></button>}</div> : null}
   </>;
 }

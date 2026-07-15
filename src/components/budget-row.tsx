@@ -3,7 +3,7 @@ import { CategoryIcon } from "@/components/icons";
 import { formatCurrency } from "@/lib/utils";
 
 type BudgetRowProps = {
-  category: { name: string; color: string; icon: string; budgetedCents: number; spentCents: number; pendingCents?: number; recentTransactions?: unknown[] };
+  category: { name: string; color: string; icon: string; behaviorType?: "spending" | "obligation" | "goal" | "income" | "excluded"; budgetedCents: number; spentCents: number; pendingCents?: number; recentTransactions?: unknown[] };
   compact?: boolean;
   onSelect?: () => void;
 };
@@ -16,6 +16,7 @@ export function BudgetRow({ category, compact = false, onSelect }: BudgetRowProp
   const state = isUnbudgetedSpend || remaining < 0 ? "over" : category.budgetedCents === 0 ? "empty" : percent >= 80 ? "approaching" : "active";
   const transactionCount = category.recentTransactions?.length ?? 0;
   const transactionLabel = transactionCount ? `${transactionCount} transaction${transactionCount === 1 ? "" : "s"}` : "No transactions";
+  const labels = category.behaviorType === "obligation" ? { used: "paid", total: "due", remaining: "remaining" } : category.behaviorType === "goal" ? { used: "contributed", total: "target", remaining: "remaining" } : { used: "spent", total: "budget", remaining: "left" };
   return (
     <article className={`budget-row ${state}`} onClick={onSelect} onKeyDown={onSelect ? (event) => { if (event.key === "Enter" || event.key === " ") onSelect(); } : undefined} role={onSelect ? "button" : undefined} tabIndex={onSelect ? 0 : undefined}>
       <div className="category-disc" style={{ "--category": category.color } as React.CSSProperties}>
@@ -25,8 +26,8 @@ export function BudgetRow({ category, compact = false, onSelect }: BudgetRowProp
         <div className="budget-row-top">
           <div className="budget-row-identity"><h3>{category.name}</h3><p>{compact ? transactionLabel : category.pendingCents ? `${transactionLabel} · pending included` : transactionLabel}</p></div>
           <div className="budget-amount">
-            <strong>{category.budgetedCents === 0 ? formatCurrency(used, { compact: true }) : `${formatCurrency(used, { compact: true })} / ${formatCurrency(category.budgetedCents, { compact: true })}`}</strong>
-            <span className={state === "over" ? "negative" : ""}>{isUnbudgetedSpend ? "unbudgeted" : category.budgetedCents === 0 ? "add budget" : `${formatCurrency(Math.abs(remaining), { compact: true })} ${remaining < 0 ? "over" : "left"}`}</span>
+            <strong>{category.budgetedCents === 0 ? `${formatCurrency(used, { compact: true })} ${labels.used}` : `${formatCurrency(used, { compact: true })} ${labels.used} / ${formatCurrency(category.budgetedCents, { compact: true })} ${labels.total}`}</strong>
+            <span className={state === "over" ? "negative" : ""}>{isUnbudgetedSpend ? "unbudgeted" : category.budgetedCents === 0 ? `add ${labels.total}` : `${formatCurrency(Math.abs(remaining), { compact: true })} ${remaining < 0 ? "over" : labels.remaining}`}</span>
           </div>
         </div>
         <div className="progress-track" aria-label={`${percent}% of ${category.name} budget used`}>

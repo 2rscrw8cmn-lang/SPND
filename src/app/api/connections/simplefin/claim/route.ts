@@ -49,7 +49,7 @@ export async function POST(request: Request) {
     }, { onConflict: "household_id,provider" }).select("id").single();
     if (error || !connection) throw new Error("Unable to store the encrypted connection.");
     const result = await syncConnection(connection.id as string, true);
-    return NextResponse.json({ message: "SimpleFIN connected and the initial sync is complete.", ...result });
+    return NextResponse.json({ message: result.partial ? "SimpleFIN connected, but the initial sync has provider warnings." : "SimpleFIN connected and the initial sync is complete.", ...result }, { status: result.partial ? 207 : 200 });
   } catch (error) {
     const message = error instanceof z.ZodError ? "The Setup Token format is invalid." : error instanceof Error ? error.message : "Connection failed.";
     return NextResponse.json({ message }, { status: 400 });
