@@ -7,6 +7,7 @@ import { normalizeBudgetMonth } from "@/lib/data";
 
 const schema = z.union([
   z.object({ categoryId: z.string().uuid(), budgetedCents: z.number().int().min(0).max(100_000_000), month: z.string().regex(/^\d{4}-\d{2}(?:-01)?$/).optional() }),
+  z.object({ budgets: z.array(z.object({ categoryId: z.string().uuid(), budgetedCents: z.number().int().min(0).max(100_000_000) })).min(1).max(100), month: z.string().regex(/^\d{4}-\d{2}(?:-01)?$/).optional() }),
   z.object({ fromCategoryId: z.string().uuid(), toCategoryId: z.string().uuid(), amountCents: z.number().int().positive().max(100_000_000), month: z.string().regex(/^\d{4}-\d{2}(?:-01)?$/).optional() }).refine((value) => value.fromCategoryId !== value.toCategoryId, "Choose two different categories."),
 ]);
 
@@ -20,6 +21,12 @@ export async function POST(request: Request) {
   if ("fromCategoryId" in body.data) {
     const { error } = await supabase.rpc("move_budget_money", { p_household_id: auth.householdId, p_month: month, p_from_category_id: body.data.fromCategoryId, p_to_category_id: body.data.toCategoryId, p_amount_cents: body.data.amountCents });
     return NextResponse.json({ message: error ? "Money could not be moved." : "Budget money moved." }, { status: error ? 400 : 200 });
+  }
+  if ("budgets" in body.data) {
+    const rows = body.data.budgets.map((budget) => ({ household_id: auth.householdId, category_id: budget.categoryId, month, budgeted_cents: budget.budgetedCents, updated_at: new Date().toISOString() }));
+    const { error } = await supabase.from("monthly_budgets").upsert(rows, { onConflict: "household_id,month,category_id" });
+    if (!error) await supabase.from("audit_events").insert(body.data.budgets.map((budget) => ({ household_id: auth.householdId, actor_user_id: auth.userId, entity_type: "monthly_budget", action: "updated", metadata: { month, categoryId: budget.categoryId, budgetedCents: budget.budgetedCents } })));
+    return NextResponse.json({ message: error ? "Monthly budget could not be saved." : "Monthly budget updated." }, { status: error ? 500 : 200 });
   }
   const { error } = await supabase.from("monthly_budgets").upsert({
     household_id: auth.householdId,

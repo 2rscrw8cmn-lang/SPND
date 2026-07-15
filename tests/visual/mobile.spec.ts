@@ -29,7 +29,14 @@ test.describe("390px mobile visual QA", () => {
   test("Budget workspace and transaction-first category sheet fit the viewport", async ({ page }, testInfo) => {
     await page.goto("/budget");
     await expect(page.getByRole("navigation", { name: "Budget month" })).toContainText("Jul 2026");
-    await expect(page.getByRole("button", { name: "Edit budget" })).toBeVisible();
+    await page.getByRole("button", { name: "Edit budget" }).click();
+    const budgetEditor = page.getByRole("dialog", { name: "Edit July budget" });
+    await expect(budgetEditor).toBeVisible();
+    await expect(budgetEditor.getByLabel("Groceries monthly budget")).toBeVisible();
+    await expect(budgetEditor.getByRole("button", { name: "Save monthly budget" })).toBeVisible();
+    await capture(page, testInfo, "budget-editor");
+    await swipe(page, budgetEditor.getByRole("button", { name: "Drag down to close monthly budget editor" }), 2, 140);
+    await expect(budgetEditor).toBeHidden();
     await expect(page.getByRole("button", { name: "Add category" })).toHaveCount(0);
     await page.getByRole("button", { name: /Groceries/ }).click();
     const detail = page.getByRole("dialog", { name: "Groceries category detail" });

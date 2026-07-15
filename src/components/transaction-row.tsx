@@ -21,7 +21,7 @@ export function TransactionRow({ transaction, onSelect, onReview, onChooseCatego
   function pointerDown(event: React.PointerEvent) { if (event.button !== 0 || (event.target as HTMLElement).closest("button,a,input,select,textarea")) return; start.current = { x: event.clientX, y: event.clientY, time: performance.now(), axis: "pending" }; suppressClick.current = false; }
   function pointerMove(event: React.PointerEvent) {
     const point = start.current; if (!point) return; const dx = event.clientX - point.x; const dy = event.clientY - point.y;
-    if (point.axis === "pending") { if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { point.axis = "vertical"; setDragX(0); return; } if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.35) { point.axis = "horizontal"; event.currentTarget.setPointerCapture(event.pointerId); } }
+    if (point.axis === "pending") { if (Math.abs(dy) > 8 && Math.abs(dy) > Math.abs(dx)) { point.axis = "vertical"; suppressClick.current = true; setDragX(0); return; } if (Math.abs(dx) > 10 && Math.abs(dx) > Math.abs(dy) * 1.35) { point.axis = "horizontal"; event.currentTarget.setPointerCapture(event.pointerId); } }
     if (point.axis === "horizontal") { event.preventDefault(); suppressClick.current = true; setDragX(Math.max(-96, Math.min(96, dx))); }
   }
   function pointerUp(event: React.PointerEvent) {

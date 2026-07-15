@@ -3,7 +3,8 @@
 import { format } from "date-fns";
 import { Check, FileSpreadsheet, Upload, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { BottomSheet } from "@/components/bottom-sheet";
 import type { ImportInboxItem } from "@/lib/data";
 
 const typeLabels: Record<string, string> = {
@@ -89,20 +90,13 @@ export function ImportInbox({ initialImports, accounts }: { initialImports: Impo
 }
 
 function ApplyConfirmation({ item, loading, onCancel, onConfirm }: { item: ImportInboxItem; loading: boolean; onCancel: () => void; onConfirm: () => void }) {
-  const dialogRef = useRef<HTMLElement>(null);
-  useEffect(() => {
-    const previous = document.activeElement as HTMLElement | null; const overflow = document.body.style.overflow; document.body.style.overflow = "hidden"; dialogRef.current?.focus();
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") onCancel(); };
-    window.addEventListener("keydown", escape);
-    return () => { window.removeEventListener("keydown", escape); document.body.style.overflow = overflow; previous?.focus(); };
-  }, [onCancel]);
   const acceptedRows = item.rows.filter((row) => row.status === "accepted");
-  return <div className="sheet-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}><section ref={dialogRef} tabIndex={-1} className="import-confirm-sheet" role="dialog" aria-modal="true" aria-label={`Apply ${item.fileName}`}>
-    <div className="sheet-handle" /><div className="sheet-title"><div><p className="eyebrow">Final confirmation</p><h2>Apply {acceptedRows.length} rows?</h2></div><button className="icon-button" onClick={onCancel} aria-label="Close apply confirmation"><X /></button></div>
+  return <BottomSheet className="import-confirm-sheet" label={`Apply ${item.fileName}`} onClose={onCancel} handleLabel="Drag down to close apply confirmation">
+    <div className="sheet-title"><div><p className="eyebrow">Final confirmation</p><h2>Apply {acceptedRows.length} rows?</h2></div><button className="icon-button" onClick={onCancel} aria-label="Close apply confirmation"><X /></button></div>
     <p className="import-confirm-copy">This will change SPND using the reviewed rows below. {item.duplicateRows ? `${item.duplicateRows} duplicate rows will remain unchanged.` : "No duplicate rows will be applied."}</p>
     <div className="import-confirm-preview">{acceptedRows.slice(0, 5).map((row) => <div key={row.id}><strong>Row {row.rowNumber}</strong><span>{Object.values(row.normalized).filter((value) => value !== null && value !== "").slice(0, 3).map(String).join(" · ")}</span></div>)}{acceptedRows.length > 5 ? <p>+ {acceptedRows.length - 5} more reviewed rows</p> : null}</div>
     <div className="import-confirm-actions"><button className="primary-button" disabled={loading} onClick={onConfirm}>{loading ? "Applying…" : "Confirm and apply"}</button><button className="secondary-button" disabled={loading} onClick={onCancel}>Cancel</button></div>
-  </section></div>;
+  </BottomSheet>;
 }
 
 function ImportRow({ importId, row }: { importId: string; row: ImportInboxItem["rows"][number] }) {

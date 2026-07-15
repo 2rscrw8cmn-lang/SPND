@@ -21,7 +21,8 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   webServer: {
-    command: "SPND_DEMO_MODE=true NEXT_PUBLIC_APP_URL=http://127.0.0.1:3100 npm run dev -- --hostname 127.0.0.1 --port 3100",
+    command: "npm run dev -- --hostname 127.0.0.1 --port 3100",
+    env: { SPND_DEMO_MODE: "true", NEXT_PUBLIC_APP_URL: "http://127.0.0.1:3100" },
     url: "http://127.0.0.1:3100",
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
