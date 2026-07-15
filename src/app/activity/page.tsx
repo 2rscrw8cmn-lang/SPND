@@ -11,7 +11,7 @@ export default async function ActivityPage({ searchParams }: { searchParams: Pro
   return (
     <PageShell>
       <h1 className="page-title">Activity</h1>
-      <p className="page-subtitle">Review what’s new and correct a category in a couple of taps.</p>
+      <p className="page-subtitle">Review, categorize, and keep the household current.</p>
       <ActivityList initialTransactions={transactions} categories={workspace.categories.filter((item) => item.isActive)} accounts={accounts} initialCategoryId={category} />
     </PageShell>
   );

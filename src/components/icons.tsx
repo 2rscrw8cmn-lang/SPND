@@ -9,5 +9,5 @@ export const categoryIcons: Record<string, LucideIcon> = {
 
 export function CategoryIcon({ name, size = 22 }: { name: string; size?: number }) {
   const Icon = categoryIcons[name] ?? CircleHelp;
-  return <Icon size={size} strokeWidth={2.2} />;
+  return <Icon size={size} strokeWidth={2.65} />;
 }

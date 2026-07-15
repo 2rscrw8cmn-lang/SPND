@@ -79,6 +79,26 @@ test.describe("390px mobile visual QA", () => {
     }
   });
 
+  test("reference-led mobile composition keeps primary information above the fold", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.locator(".hero-ring")).toBeVisible();
+    await expect(page.getByText("safe today")).toBeVisible();
+    const thirdHomeCategory = page.locator(".budget-stack .budget-row").nth(2);
+    const homeBox = await thirdHomeCategory.boundingBox();
+    expect((homeBox?.y ?? 9999) + (homeBox?.height ?? 0)).toBeLessThan(800);
+
+    await page.goto("/budget");
+    await expect(page.locator(".budget-summary-ring")).toBeVisible();
+    await expect(page.getByText("available after pending")).toBeVisible();
+
+    await page.goto("/activity");
+    await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
+    const firstTransaction = page.locator(".activity-day-card .transaction-row").first();
+    await expect(firstTransaction).toBeVisible();
+    const activityBox = await firstTransaction.boundingBox();
+    expect(activityBox?.y ?? 9999).toBeLessThan(520);
+  });
+
   test("Activity groups by day and review advances through Needs review", async ({ page }) => {
     await mockTransactionUpdates(page);
     await page.goto("/activity");

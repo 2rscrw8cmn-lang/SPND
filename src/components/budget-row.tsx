@@ -3,7 +3,7 @@ import { CategoryIcon } from "@/components/icons";
 import { formatCurrency } from "@/lib/utils";
 
 type BudgetRowProps = {
-  category: { name: string; color: string; icon: string; budgetedCents: number; spentCents: number; pendingCents?: number };
+  category: { name: string; color: string; icon: string; budgetedCents: number; spentCents: number; pendingCents?: number; recentTransactions?: unknown[] };
   compact?: boolean;
   onSelect?: () => void;
 };
@@ -29,7 +29,7 @@ export function BudgetRow({ category, compact = false, onSelect }: BudgetRowProp
         <div className="progress-track" aria-label={`${percent}% of ${category.name} budget used`}>
           <span style={{ width: `${percent}%`, backgroundColor: category.color }} />
         </div>
-        {!compact ? <p>{formatCurrency(category.spentCents)} spent{category.pendingCents ? ` · ${formatCurrency(category.pendingCents)} pending` : ""} · {formatCurrency(category.budgetedCents)} budget</p> : null}
+        <p>{compact ? `${category.recentTransactions?.length || "No"} transaction${category.recentTransactions?.length === 1 ? "" : "s"}` : `${formatCurrency(category.spentCents)} spent${category.pendingCents ? ` · ${formatCurrency(category.pendingCents)} pending` : ""} · ${formatCurrency(category.budgetedCents)} budget`}</p>
       </div>
       <ChevronRight className="row-chevron" size={22} />
     </article>
