@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
-import { ChevronRight, Database, Download, Landmark, LogOut, ShieldCheck } from "lucide-react";
+import { ChevronRight, ClipboardCheck, Database, Download, FileUp, Landmark, LogOut, ShieldCheck } from "lucide-react";
 import { PageShell } from "@/components/page-shell";
 import { SimpleFinConnection } from "@/components/simplefin-connection";
+import { getConnectionHealth } from "@/lib/data";
 
 export const metadata: Metadata = { title: "Settings" };
 
-export default function SettingsPage() {
+export default async function SettingsPage() {
+  const health = await getConnectionHealth();
   return (
     <PageShell>
       <h1 className="page-title">Settings</h1>
@@ -14,10 +16,12 @@ export default function SettingsPage() {
         <p className="eyebrow">Connections</p>
         <h2>SimpleFIN Bridge</h2>
         <p className="page-subtitle">Read-only account balances and transactions. Your access credential stays encrypted on the server.</p>
-        <SimpleFinConnection />
+        <SimpleFinConnection initialHealth={health} />
       </section>
       <div className="section-heading"><h2>Household</h2></div>
       <section className="card">
+        <a className="settings-row" href="/settings/imports"><div><strong>Import inbox</strong><br /><span>Upload, review, and apply documents</span></div><FileUp /></a>
+        <a className="settings-row" href="/settings/diagnostics"><div><strong>Reconciliation checks</strong><br /><span>Verify balances, transactions, and allocations</span></div><ClipboardCheck /></a>
         <div className="settings-row"><div><strong>Members</strong><br /><span>Zack and Stephanie</span></div><ShieldCheck color="var(--lime)" /></div>
         <div className="settings-row"><div><strong>Minimum cash buffer</strong><br /><span>$750.00</span></div><ChevronRight /></div>
         <a className="settings-row" href="/settings/accounts"><div><strong>Accounts</strong><br /><span>Choose cash flow, net worth, or excluded</span></div><Landmark /></a>

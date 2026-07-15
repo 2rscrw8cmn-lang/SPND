@@ -97,6 +97,7 @@ export async function syncConnection(connectionId: string, initial = false) {
   }).select("id").single();
 
   let accountCount = 0;
+  const syncedAccountIds = new Set<string>();
   let transactionCount = 0;
   try {
     const now = new Date();
@@ -134,7 +135,8 @@ export async function syncConnection(connectionId: string, initial = false) {
           updated_at: now.toISOString(),
         }, { onConflict: "household_id,provider_account_id" }).select("id").single();
         if (accountError || !account) throw new Error("Unable to save an imported account.");
-        accountCount += 1;
+        syncedAccountIds.add(account.id as string);
+        accountCount = syncedAccountIds.size;
 
         const { data: existingPending } = await admin.from("transactions")
           .select("id, account_id, provider_transaction_id, transacted_at, amount_cents, merchant, status, note, excluded, is_transfer, is_recurring, review_status, reviewed_at, reviewed_by")

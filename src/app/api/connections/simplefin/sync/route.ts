@@ -8,12 +8,11 @@ export async function POST() {
   if (!auth) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
   const admin = createAdminClient();
   const { data: connection } = await admin.from("financial_connections")
-    .select("id, last_synced_at").eq("household_id", auth.householdId).eq("provider", "simplefin").eq("status", "active").maybeSingle();
-  if (!connection) return NextResponse.json({ message: "No active connection." }, { status: 404 });
-  if (connection.last_synced_at && Date.now() - new Date(connection.last_synced_at as string).getTime() < 5 * 60_000) {
+    .select("id, last_synced_at, status, encrypted_access_url").eq("household_id", auth.householdId).eq("provider", "simplefin").in("status", ["active", "error"]).maybeSingle();
+  if (!connection?.encrypted_access_url) return NextResponse.json({ message: "Reconnect SimpleFIN before syncing." }, { status: 404 });
+  if (connection.status === "active" && connection.last_synced_at && Date.now() - new Date(connection.last_synced_at as string).getTime() < 5 * 60_000) {
     return NextResponse.json({ message: "A sync completed recently. Try again in a few minutes." }, { status: 429 });
   }
-  const result = await syncConnection(connection.id as string);
-  return NextResponse.json({ message: "Sync complete.", ...result });
+  try { const result = await syncConnection(connection.id as string); return NextResponse.json({ message: "Sync complete.", ...result }); }
+  catch (error) { return NextResponse.json({ message: error instanceof Error && !/https?:\/\//i.test(error.message) ? error.message : "SimpleFIN sync needs attention." }, { status: 502 }); }
 }
-

@@ -194,6 +194,68 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .transaction-options label { min-height: 48px; display: flex; align-items: center; gap: 11px; border-bottom: 1px solid var(--border); font-size: 14px; }
 .transaction-options input { width: 19px; height: 19px; accent-color: var(--lime); }
 .transaction-save { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.connection-health { overflow: hidden; margin: 14px 0; border: 1px solid var(--border); border-radius: 16px; background: var(--canvas); }
+.connection-health.error { border-color: color-mix(in srgb, var(--yellow) 45%, var(--border)); }
+.connection-status { min-height: 62px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.connection-status > svg { color: var(--muted); }
+.connection-health.active .connection-status > svg { color: var(--lime); }
+.connection-health.error .connection-status > svg { color: var(--yellow); }
+.connection-status span { display: grid; gap: 3px; }
+.connection-status small, .connection-health dt { color: var(--muted); font-size: 11px; }
+.connection-health dl { display: grid; grid-template-columns: repeat(2, 1fr); margin: 0; }
+.connection-health dl div { padding: 11px 14px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.connection-health dl div:nth-child(even) { border-right: 0; }
+.connection-health dt { margin-bottom: 4px; }
+.connection-health dd { margin: 0; font-size: 13px; font-weight: 700; }
+.connection-error { margin: 0; padding: 12px 14px; color: var(--yellow); font-size: 13px; line-height: 1.4; }
+.connection-actions { display: flex; flex-wrap: wrap; gap: 9px; }
+.connection-actions button { display: inline-flex; align-items: center; gap: 7px; }
+.danger-button { min-height: 48px; padding: 0 14px; border: 1px solid color-mix(in srgb, var(--red) 45%, var(--border)); border-radius: 14px; color: var(--red); background: transparent; font-weight: 700; cursor: pointer; }
+.connection-form { margin-top: 16px; }
+.import-upload { position: relative; padding: 16px; }
+.import-upload-icon { width: 44px; height: 44px; display: grid; place-items: center; margin-bottom: 14px; border-radius: 50%; color: var(--canvas); background: var(--lime); }
+.import-upload input[type="file"] { padding: 9px; }
+.import-safety { margin: 12px 0 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
+.import-history { display: grid; gap: 12px; }
+.import-card { overflow: hidden; }
+.import-card > summary { min-height: 70px; display: grid; grid-template-columns: 32px 1fr auto; align-items: center; gap: 10px; padding: 12px 14px; cursor: pointer; list-style: none; }
+.import-card > summary::-webkit-details-marker { display: none; }
+.import-card > summary > svg { color: var(--aqua); }
+.import-card > summary span { min-width: 0; display: grid; gap: 4px; }
+.import-card > summary strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.import-card > summary small { color: var(--muted); }
+.import-status { padding: 5px 8px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 10px; font-style: normal; font-weight: 800; text-transform: uppercase; }
+.import-status.ready, .import-status.applied { color: var(--lime); border-color: color-mix(in srgb, var(--lime) 35%, var(--border)); }
+.import-status.review, .import-status.error { color: var(--yellow); border-color: color-mix(in srgb, var(--yellow) 35%, var(--border)); }
+.import-counts { display: grid; grid-template-columns: repeat(3, 1fr); border-block: 1px solid var(--border); background: var(--canvas); }
+.import-counts span { padding: 10px; color: var(--muted); text-align: center; font-size: 11px; }
+.import-counts strong { display: block; margin-bottom: 3px; color: var(--text); font-size: 16px; }
+.import-preview { max-height: 420px; overflow-y: auto; }
+.import-row { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+.import-row.review { border-left: 3px solid var(--yellow); }
+.import-row.duplicate { opacity: .65; }
+.import-row-heading { display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 10px; }
+.import-row-heading span { color: var(--muted); font-size: 11px; text-transform: uppercase; }
+.import-row-heading button { min-height: 36px; border: 0; color: var(--lime); background: transparent; cursor: pointer; }
+.import-row p { margin: 7px 0 0; overflow-wrap: anywhere; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.import-row-fields { display: grid; gap: 8px; margin-top: 10px; }
+.import-row-fields label { display: grid; grid-template-columns: 110px 1fr; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; }
+.import-row-fields input { min-width: 0; min-height: 40px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); background: var(--surface-raised); padding: 0 10px; }
+.row-error { display: block; margin-top: 6px; color: var(--yellow); }
+.import-actions { display: flex; flex-wrap: wrap; gap: 9px; padding: 12px 14px; }
+.import-actions button { display: inline-flex; align-items: center; gap: 7px; }
+.import-empty { padding: 12px 14px; color: var(--muted); font-size: 13px; }
+.diagnostic-summary { display: grid; grid-template-columns: 1fr auto; gap: 5px 10px; padding: 15px 16px; }
+.diagnostic-summary span, .diagnostic-summary p { color: var(--muted); font-size: 13px; }
+.diagnostic-summary strong { color: var(--lime); }
+.diagnostic-summary p { grid-column: 1 / -1; margin: 0; }
+.diagnostic-list { margin-top: 14px; overflow: hidden; }
+.diagnostic-row { display: grid; grid-template-columns: 28px 1fr; gap: 10px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+.diagnostic-row:last-child { border-bottom: 0; }
+.diagnostic-row svg { width: 21px; }
+.check-ok { color: var(--lime); }.check-warn { color: var(--yellow); }
+.diagnostic-row p { margin: 4px 0 0; color: var(--muted); font-size: 13px; line-height: 1.4; }
+.diagnostic-note { color: var(--muted); font-size: 12px; line-height: 1.5; }
 
 .auth-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px; }
 .auth-card { width: min(100%, 440px); padding: 32px; }

@@ -26,6 +26,19 @@ export type ActivityTransaction = {
   allocations: Array<{ categoryId: string; category: string; amountCents: number }>;
 };
 
+export type ConnectionHealth = {
+  status: "active" | "error" | "disconnected" | "unconfigured";
+  lastSuccessfulSync: string | null; lastAttemptedSync: string | null;
+  accountCount: number; transactionCount: number; lastResult: string | null;
+  sanitizedError: string | null;
+};
+
+export type ImportInboxItem = {
+  id: string; fileName: string; importType: string; status: string; createdAt: string;
+  acceptedRows: number; duplicateRows: number; reviewRows: number;
+  rows: Array<{ id: string; rowNumber: number; status: string; normalized: Record<string, unknown>; errors: string[] }>;
+};
+
 export function normalizeBudgetMonth(value?: string) {
   const parsed = value ? parseISO(`${value.slice(0, 7)}-01`) : new Date();
   return startOfMonth(isValid(parsed) ? parsed : new Date());
@@ -113,6 +126,44 @@ export async function getAccountsData() {
   if (!context) return [];
   const { data } = await context.supabase.from("accounts").select("id,name,institution_name,current_balance_cents,cash_flow_mode").eq("household_id", context.householdId).order("name");
   return (data ?? []).map((account) => ({ id: account.id as string, name: account.name as string, institutionName: (account.institution_name as string | null) ?? "Imported account", balanceCents: Number(account.current_balance_cents), mode: account.cash_flow_mode as "cash" | "net_worth" | "excluded" }));
+}
+
+export async function getConnectionHealth(): Promise<ConnectionHealth> {
+  if (isDemoMode) return { status: "active", lastSuccessfulSync: new Date(Date.now() - 18 * 60_000).toISOString(), lastAttemptedSync: new Date(Date.now() - 18 * 60_000).toISOString(), accountCount: 2, transactionCount: 24, lastResult: "success", sanitizedError: null };
+  const context = await householdContext();
+  if (!context) return { status: "unconfigured", lastSuccessfulSync: null, lastAttemptedSync: null, accountCount: 0, transactionCount: 0, lastResult: null, sanitizedError: null };
+  const { data } = await context.supabase.from("connection_health").select("status,last_synced_at,last_attempted_at,account_count,last_transaction_count,last_sync_status,sanitized_error,last_error").eq("household_id", context.householdId).eq("provider", "simplefin").maybeSingle();
+  if (!data) return { status: "unconfigured", lastSuccessfulSync: null, lastAttemptedSync: null, accountCount: 0, transactionCount: 0, lastResult: null, sanitizedError: null };
+  return { status: data.status as ConnectionHealth["status"], lastSuccessfulSync: data.last_synced_at as string | null, lastAttemptedSync: data.last_attempted_at as string | null, accountCount: Number(data.account_count ?? 0), transactionCount: Number(data.last_transaction_count ?? 0), lastResult: data.last_sync_status as string | null, sanitizedError: (data.sanitized_error ?? data.last_error) as string | null };
+}
+
+export async function getImportInbox(): Promise<ImportInboxItem[]> {
+  if (isDemoMode) return [];
+  const context = await householdContext();
+  if (!context) return [];
+  const { data: imports } = await context.supabase.from("imports").select("id,file_name,import_type,status,created_at,accepted_rows,duplicate_rows,review_rows").eq("household_id", context.householdId).order("created_at", { ascending: false }).limit(25);
+  const ids = (imports ?? []).map((item) => item.id as string);
+  const [{ data: rows }, { data: errors }] = ids.length ? await Promise.all([
+    context.supabase.from("import_rows").select("id,import_id,row_number,status,normalized_data").in("import_id", ids).order("row_number").limit(500),
+    context.supabase.from("import_errors").select("import_id,import_row_id,message,resolved_at").in("import_id", ids).is("resolved_at", null),
+  ]) : [{ data: [] }, { data: [] }];
+  return (imports ?? []).map((item) => ({ id: item.id as string, fileName: item.file_name as string, importType: item.import_type as string, status: item.status as string, createdAt: item.created_at as string, acceptedRows: Number(item.accepted_rows), duplicateRows: Number(item.duplicate_rows), reviewRows: Number(item.review_rows), rows: (rows ?? []).filter((row) => row.import_id === item.id).map((row) => ({ id: row.id as string, rowNumber: Number(row.row_number), status: row.status as string, normalized: row.normalized_data as Record<string, unknown>, errors: (errors ?? []).filter((error) => error.import_row_id === row.id).map((error) => error.message as string) })) }));
+}
+
+export async function getReconciliationData() {
+  if (isDemoMode) return { accounts: 2, staleAccounts: 0, activeTransactions: 5, supersededPending: 0, allocationMismatches: 0, excludedAccounts: 0, checksRunAt: new Date().toISOString() };
+  const context = await householdContext();
+  if (!context) return { accounts: 0, staleAccounts: 0, activeTransactions: 0, supersededPending: 0, allocationMismatches: 0, excludedAccounts: 0, checksRunAt: new Date().toISOString() };
+  const staleBefore = new Date(Date.now() - 48 * 60 * 60_000).toISOString();
+  const [{ data: accounts }, { data: transactions }, { data: allocations }] = await Promise.all([
+    context.supabase.from("accounts").select("id,balance_as_of,cash_flow_mode").eq("household_id", context.householdId),
+    context.supabase.from("transactions").select("id,amount_cents,status,excluded,superseded_by_transaction_id").eq("household_id", context.householdId),
+    context.supabase.from("transaction_allocations").select("transaction_id,amount_cents").eq("household_id", context.householdId),
+  ]);
+  const allocationTotals = new Map<string, number>();
+  for (const allocation of allocations ?? []) allocationTotals.set(allocation.transaction_id as string, (allocationTotals.get(allocation.transaction_id as string) ?? 0) + Number(allocation.amount_cents));
+  const expenses = (transactions ?? []).filter((transaction) => Number(transaction.amount_cents) < 0 && !transaction.excluded && !transaction.superseded_by_transaction_id);
+  return { accounts: accounts?.length ?? 0, staleAccounts: (accounts ?? []).filter((account) => !account.balance_as_of || account.balance_as_of < staleBefore).length, activeTransactions: (transactions ?? []).filter((transaction) => !transaction.superseded_by_transaction_id).length, supersededPending: (transactions ?? []).filter((transaction) => transaction.status === "pending" && transaction.superseded_by_transaction_id).length, allocationMismatches: expenses.filter((transaction) => (allocationTotals.get(transaction.id as string) ?? 0) !== Number(transaction.amount_cents)).length, excludedAccounts: (accounts ?? []).filter((account) => account.cash_flow_mode === "excluded").length, checksRunAt: new Date().toISOString() };
 }
 
 export async function getActivityData(limit = 100): Promise<ActivityTransaction[]> {
