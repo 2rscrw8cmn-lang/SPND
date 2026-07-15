@@ -72,6 +72,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.data.isTransfer !== undefined) { updates.is_transfer = body.data.isTransfer; if (body.data.isTransfer) updates.excluded = true; }
   if (body.data.isRecurring !== undefined) updates.is_recurring = body.data.isRecurring;
   if (body.data.reviewed !== undefined) { updates.review_status = body.data.reviewed ? "reviewed" : "needs_review"; updates.reviewed_at = body.data.reviewed ? now : null; updates.reviewed_by = body.data.reviewed ? auth.userId : null; }
+  if (body.data.excluded === true || body.data.isTransfer === true) { updates.review_status = "reviewed"; updates.reviewed_at = now; updates.reviewed_by = auth.userId; }
   const { error: updateError } = await supabase.from("transactions").update(updates).eq("id", id).eq("household_id", auth.householdId);
   if (updateError) return NextResponse.json({ message: "Transaction could not be updated." }, { status: 500 });
   if (requestedAllocations) {

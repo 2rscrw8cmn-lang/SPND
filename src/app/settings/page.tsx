@@ -1,5 +1,5 @@
+import { ChevronDown, CircleDollarSign, ClipboardCheck, Database, Download, FileUp, Landmark, ShieldCheck, Users } from "lucide-react";
 import type { Metadata } from "next";
-import { CircleDollarSign, ClipboardCheck, Database, Download, FileUp, Landmark, ShieldCheck } from "lucide-react";
 import { CategoryGroupSettings } from "@/components/category-group-settings";
 import { PageShell } from "@/components/page-shell";
 import { SignOutButton } from "@/components/sign-out-button";
@@ -13,33 +13,21 @@ export const metadata: Metadata = { title: "Settings" };
 export default async function SettingsPage() {
   const [health, workspace, household] = await Promise.all([getConnectionHealth(), getBudgetWorkspace(), getHouseholdSummary()]);
   const categoryCounts = workspace.categories.reduce<Record<string, number>>((counts, category) => ({ ...counts, [category.categoryGroup]: (counts[category.categoryGroup] ?? 0) + 1 }), {});
-  return (
-    <PageShell>
-      <h1 className="page-title">Settings</h1>
-      <p className="page-subtitle">{household.name} · {household.timezone}</p>
-      <div className="section-heading"><div><h2>Budget structure</h2><p>Shape the budget around your household.</p></div></div>
-      <CategoryGroupSettings initialGroups={workspace.categoryGroups} categoryCounts={categoryCounts} />
-      <div className="section-heading"><h2>Connections</h2></div>
-      <section className="form-card card">
-        <p className="eyebrow">Bank sync</p>
-        <h2>SimpleFIN Bridge</h2>
-        <p className="page-subtitle">Read-only account balances and transactions. Your access credential stays encrypted on the server.</p>
-        <SimpleFinConnection initialHealth={health} />
-      </section>
-      <div className="section-heading"><h2>Household</h2></div>
-      <section className="card">
-        <a className="settings-row" href="/settings/imports"><div><strong>Import inbox</strong><br /><span>Upload, review, and apply documents</span></div><FileUp /></a>
-        <a className="settings-row" href="/settings/diagnostics"><div><strong>Reconciliation checks</strong><br /><span>Verify balances, transactions, and allocations</span></div><ClipboardCheck /></a>
-        <div className="settings-row"><div><strong>Members</strong><br /><span>{household.memberCount} household member{household.memberCount === 1 ? "" : "s"}</span></div><ShieldCheck color="var(--lime)" /></div>
-        <div className="settings-row"><div><strong>Minimum cash buffer</strong><br /><span>{formatCurrency(household.minimumCashBufferCents)}</span></div><CircleDollarSign /></div>
-        <a className="settings-row" href="/settings/accounts"><div><strong>Accounts</strong><br /><span>Choose cash flow, net worth, or excluded</span></div><Landmark /></a>
-      </section>
-      <div className="section-heading"><h2>Data & privacy</h2></div>
-      <section className="card">
-        <a className="settings-row" href="/api/export/transactions"><div><strong>Export transactions</strong><br /><span>Download a CSV backup</span></div><Download /></a>
-        <a className="settings-row" href="/api/export/budget"><div><strong>Export budget</strong><br /><span>Monthly amounts and categories</span></div><Database /></a>
-        <SignOutButton demoMode={isDemoMode} />
-      </section>
-    </PageShell>
-  );
+
+  return <PageShell>
+    <header className="settings-header"><div><h1 className="page-title">Settings</h1><p className="page-subtitle">Manage the household, budget structure, and connected data.</p></div><span className={`connection-pill ${health.status}`}>{health.status === "active" ? "Bank connected" : health.status}</span></header>
+
+    <section className="settings-household-card card" aria-label="Household summary">
+      <div className="settings-household-title"><span><ShieldCheck size={22} /></span><div><strong>{household.name}</strong><small>{household.timezone}</small></div></div>
+      <dl><div><dt><Users size={15} /> Members</dt><dd>{household.memberCount}</dd></div><div><dt><CircleDollarSign size={15} /> Cash buffer</dt><dd>{formatCurrency(household.minimumCashBufferCents)}</dd></div></dl>
+    </section>
+
+    <section className="settings-section"><div className="section-heading"><div><h2>Budget organization</h2><p>Groups keep categories easy to scan. Category names, icons, and colors are edited from Budget.</p></div></div><CategoryGroupSettings initialGroups={workspace.categoryGroups} categoryCounts={categoryCounts} /></section>
+
+    <section className="settings-section"><div className="section-heading"><div><h2>Accounts & imports</h2><p>Control where transactions come from and how accounts affect cash flow.</p></div></div><div className="settings-link-card card"><a className="settings-row" href="/settings/accounts"><span className="settings-row-icon"><Landmark size={19} /></span><div><strong>Accounts</strong><span>Cash flow, net worth, or excluded</span></div></a><a className="settings-row" href="/settings/imports"><span className="settings-row-icon"><FileUp size={19} /></span><div><strong>Import inbox</strong><span>Review files before adding data</span></div></a><a className="settings-row" href="/settings/diagnostics"><span className="settings-row-icon"><ClipboardCheck size={19} /></span><div><strong>Data health</strong><span>Check balances, transactions, and allocations</span></div></a></div></section>
+
+    <section className="settings-section"><div className="section-heading"><div><h2>Bank connection</h2><p>Read-only transaction and balance sync.</p></div></div><details className="settings-disclosure card"><summary><span><Landmark size={19} /></span><span><strong>SimpleFIN Bridge</strong><small>{health.status === "active" ? "Connected and syncing" : "Manage connection"}</small></span><ChevronDown size={17} /></summary><div className="settings-connection-card"><SimpleFinConnection initialHealth={health} /></div></details></section>
+
+    <section className="settings-section"><div className="section-heading"><div><h2>Data & session</h2><p>Download a copy of your household data or end this session.</p></div></div><div className="settings-link-card card"><a className="settings-row" href="/api/export/transactions"><span className="settings-row-icon"><Download size={19} /></span><div><strong>Export transactions</strong><span>CSV backup of transaction history</span></div></a><a className="settings-row" href="/api/export/budget"><span className="settings-row-icon"><Database size={19} /></span><div><strong>Export budget</strong><span>Monthly amounts and category structure</span></div></a><SignOutButton demoMode={isDemoMode} /></div></section>
+  </PageShell>;
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, Layers3, LockKeyhole, Pencil, Plus, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, Layers3, LockKeyhole, Pencil, Plus, Trash2, X } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import type { CategoryGroup } from "@/lib/data";
 
@@ -69,11 +69,12 @@ export function CategoryGroupSettings({ initialGroups, categoryCounts }: { initi
     setBusyId(null);
   }
 
-  return <section className="category-group-settings card" aria-labelledby="category-groups-title">
-    <div className="category-group-settings-heading">
+  return <details className="category-group-settings card">
+    <summary className="category-group-settings-heading">
       <span className="settings-feature-icon"><Layers3 size={20} /></span>
       <div><h3 id="category-groups-title">Category groups</h3><p>Organize related categories into collapsible budget sections.</p></div>
-    </div>
+      <span className="category-group-summary-count">{groups.length} groups <ChevronDown size={17} /></span>
+    </summary>
     <div className="category-group-list">
       {groups.map((group) => {
         const count = counts[group.name] ?? 0;
@@ -101,5 +102,5 @@ export function CategoryGroupSettings({ initialGroups, categoryCounts }: { initi
     </form>
     <p className="category-group-note">To delete a group, move its categories to another group first. Built-in groups stay available for a predictable budget structure.</p>
     <p className="form-message" role="status">{message}</p>
-  </section>;
+  </details>;
 }

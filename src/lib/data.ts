@@ -25,6 +25,7 @@ export type BudgetWorkspace = {
 };
 
 const demoCategoryGroups: CategoryGroup[] = [
+  { id: "demo-income", name: "Income", sortOrder: 5, isSystem: true },
   { id: "demo-essentials", name: "Essentials", sortOrder: 10, isSystem: true },
   { id: "demo-lifestyle", name: "Lifestyle", sortOrder: 20, isSystem: true },
   { id: "demo-goals", name: "Goals", sortOrder: 30, isSystem: true },
@@ -73,11 +74,18 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
   const monthDate = normalizeBudgetMonth(monthValue);
   const month = format(monthDate, "yyyy-MM-dd");
   if (isDemoMode) {
-    const categories = demoCategories.map((category) => ({ ...category, recentTransactions: demoTransactions.filter((transaction) => transaction.categoryId === category.id).map(({ id, merchant, amountCents, isoDate, status, reviewStatus }) => ({ id, merchant, amountCents, isoDate, status, reviewStatus })) }));
+    const isCurrentMonth = month === format(startOfMonth(new Date()), "yyyy-MM-dd");
+    const categories = demoCategories.map((category) => ({
+      ...category,
+      budgetedCents: isCurrentMonth ? category.budgetedCents : 0,
+      spentCents: isCurrentMonth ? category.spentCents : 0,
+      pendingCents: isCurrentMonth ? category.pendingCents : 0,
+      recentTransactions: isCurrentMonth ? demoTransactions.filter((transaction) => transaction.categoryId === category.id && transaction.amountCents < 0).map(({ id, merchant, amountCents, isoDate, status, reviewStatus }) => ({ id, merchant, amountCents, isoDate, status, reviewStatus })) : [],
+    }));
     const budgetedCents = categories.reduce((sum, item) => sum + item.budgetedCents, 0);
     const spentCents = categories.reduce((sum, item) => sum + item.spentCents, 0);
     const pendingCents = categories.reduce((sum, item) => sum + item.pendingCents, 0);
-    return { month, categories, categoryGroups: demoCategoryGroups, unsortedCount: 1, unsortedCents: 7421, totals: { incomeCents: 342500, budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
+    return { month, categories, categoryGroups: demoCategoryGroups, unsortedCount: isCurrentMonth ? 1 : 0, unsortedCents: isCurrentMonth ? 7421 : 0, totals: { incomeCents: isCurrentMonth ? 342500 : 0, budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
   }
   const context = await householdContext();
   if (!context) return { month, categories: [], categoryGroups: [], unsortedCount: 0, unsortedCents: 0, totals: { incomeCents: 0, budgetedCents: 0, spentCents: 0, pendingCents: 0, remainingCents: 0 } };
@@ -106,11 +114,11 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
   const recentByCategory = new Map<string, BudgetTransaction[]>();
   for (const allocation of allocations ?? []) {
     allocatedIds.add(allocation.transaction_id as string);
-    const amount = Math.abs(Number(allocation.amount_cents));
-    const target = statusById.get(allocation.transaction_id as string) === "pending" ? pending : spent;
-    target.set(allocation.category_id as string, (target.get(allocation.category_id as string) ?? 0) + amount);
     const transaction = transactionById.get(allocation.transaction_id as string);
     if (transaction && Number(transaction.amount_cents) < 0) {
+      const amount = Math.abs(Number(allocation.amount_cents));
+      const target = statusById.get(allocation.transaction_id as string) === "pending" ? pending : spent;
+      target.set(allocation.category_id as string, (target.get(allocation.category_id as string) ?? 0) + amount);
       const list = recentByCategory.get(allocation.category_id as string) ?? [];
       list.push({ id: transaction.id as string, merchant: transaction.merchant as string, amountCents: Number(allocation.amount_cents), isoDate: transaction.transacted_at as string, status: transaction.status as "pending" | "posted", reviewStatus: transaction.review_status as "needs_review" | "reviewed" });
       recentByCategory.set(allocation.category_id as string, list);
@@ -132,7 +140,7 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
       pendingCents: pending.get(category.id as string) ?? 0,
       recentTransactions: (recentByCategory.get(category.id as string) ?? []).sort((a, b) => b.isoDate.localeCompare(a.isoDate)).slice(0, 8),
   }));
-  const fallbackGroupNames = Array.from(new Set(["Essentials", "Lifestyle", "Goals", ...categories.map((category) => category.categoryGroup), "Excluded"]));
+  const fallbackGroupNames = Array.from(new Set(["Income", "Essentials", "Lifestyle", "Goals", ...categories.map((category) => category.categoryGroup), "Excluded"]));
   const categoryGroups = groupRows?.length
     ? groupRows.map((group) => ({ id: group.id as string, name: group.name as string, sortOrder: Number(group.sort_order), isSystem: Boolean(group.is_system) }))
     : fallbackGroupNames.map((name, index) => ({ id: `legacy-${name.toLowerCase().replaceAll(/[^a-z0-9]+/g, "-")}`, name, sortOrder: name === "Excluded" ? 90 : (index + 1) * 10, isSystem: true }));
@@ -220,13 +228,17 @@ export async function getReconciliationData() {
   return { accounts: accounts?.length ?? 0, staleAccounts: (accounts ?? []).filter((account) => !account.balance_as_of || account.balance_as_of < staleBefore).length, activeTransactions: (transactions ?? []).filter((transaction) => !transaction.superseded_by_transaction_id).length, supersededPending: (transactions ?? []).filter((transaction) => transaction.status === "pending" && transaction.superseded_by_transaction_id).length, allocationMismatches: expenses.filter((transaction) => (allocationTotals.get(transaction.id as string) ?? 0) !== Number(transaction.amount_cents)).length, excludedAccounts: (accounts ?? []).filter((account) => account.cash_flow_mode === "excluded").length, checksRunAt: new Date().toISOString() };
 }
 
-export async function getActivityData(limit = 100): Promise<ActivityTransaction[]> {
-  if (isDemoMode) return demoTransactions.map((transaction) => ({ ...transaction, importedMerchant: transaction.merchant, auditHistory: transaction.id === "t1" ? [{ id: "demo-audit", action: "Imported from SimpleFIN", createdAt: transaction.isoDate }] : [] }));
+export async function getActivityData(limit = 100, monthValue?: string): Promise<ActivityTransaction[]> {
+  const monthDate = monthValue ? normalizeBudgetMonth(monthValue) : null;
+  const inSelectedMonth = (isoDate: string) => !monthDate || (new Date(isoDate) >= monthDate && new Date(isoDate) < addMonths(monthDate, 1));
+  if (isDemoMode) return demoTransactions.filter((transaction) => inSelectedMonth(transaction.isoDate)).map((transaction) => ({ ...transaction, reviewStatus: transaction.excluded ? "reviewed" as const : transaction.reviewStatus, importedMerchant: transaction.merchant, auditHistory: transaction.id === "t1" ? [{ id: "demo-audit", action: "Imported from SimpleFIN", createdAt: transaction.isoDate }] : [] }));
   const context = await householdContext();
   if (!context) return [];
-  const { data } = await context.supabase.from("transactions")
+  let query = context.supabase.from("transactions")
     .select("id,merchant,display_name,amount_cents,status,transacted_at,posted_at,raw_description,note,excluded,is_transfer,is_recurring,review_status,reviewed_at,account_id,accounts(name),transaction_allocations(category_id,amount_cents,categories(name,color))")
-    .eq("household_id", context.householdId).is("superseded_by_transaction_id", null).order("transacted_at", { ascending: false }).limit(limit);
+    .eq("household_id", context.householdId).is("superseded_by_transaction_id", null);
+  if (monthDate) query = query.gte("transacted_at", monthDate.toISOString()).lt("transacted_at", addMonths(monthDate, 1).toISOString());
+  const { data } = await query.order("transacted_at", { ascending: false }).limit(limit);
   const transactionIds = (data ?? []).map((transaction) => transaction.id as string);
   const { data: auditEvents } = transactionIds.length ? await context.supabase.from("audit_events").select("id,entity_id,action,created_at").eq("household_id", context.householdId).eq("entity_type", "transaction").in("entity_id", transactionIds).order("created_at", { ascending: false }).limit(300) : { data: [] };
   return (data ?? []).map((transaction) => {
@@ -251,7 +263,7 @@ export async function getActivityData(limit = 100): Promise<ActivityTransaction[
       excluded: Boolean(transaction.excluded),
       isTransfer: Boolean(transaction.is_transfer),
       isRecurring: Boolean(transaction.is_recurring),
-      reviewStatus: transaction.review_status as "needs_review" | "reviewed",
+      reviewStatus: transaction.excluded ? "reviewed" : transaction.review_status as "needs_review" | "reviewed",
       reviewedAt: transaction.reviewed_at as string | null,
       allocations: (allocations ?? []).map((allocation) => ({ categoryId: allocation.category_id, category: allocation.categories?.name ?? "Unsorted", amountCents: Number(allocation.amount_cents) })),
       auditHistory: (auditEvents ?? []).filter((event) => event.entity_id === transaction.id).map((event) => ({ id: event.id as string, action: String(event.action).replaceAll("_", " "), createdAt: event.created_at as string })),

@@ -10,7 +10,7 @@ export default async function BudgetPage({ searchParams }: { searchParams: Promi
   const workspace = await getBudgetWorkspace(month);
   return (
     <PageShell>
-      <BudgetWorkspace initialWorkspace={workspace} />
+      <BudgetWorkspace key={workspace.month} initialWorkspace={workspace} />
     </PageShell>
   );
 }

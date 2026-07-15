@@ -32,7 +32,11 @@ test.describe("390px mobile visual QA", () => {
     await page.getByRole("button", { name: "Edit budget" }).click();
     const budgetEditor = page.getByRole("dialog", { name: "Edit July budget" });
     await expect(budgetEditor).toBeVisible();
-    await expect(budgetEditor.getByLabel("Groceries monthly budget")).toBeVisible();
+    const groceriesBudget = budgetEditor.getByLabel("Groceries monthly budget");
+    await expect(groceriesBudget).toBeVisible();
+    await groceriesBudget.fill("");
+    await groceriesBudget.pressSequentially("125");
+    await expect(groceriesBudget).toHaveValue("125");
     await expect(budgetEditor.getByRole("button", { name: "Save monthly budget" })).toBeVisible();
     await capture(page, testInfo, "budget-editor");
     await swipe(page, budgetEditor.getByRole("button", { name: "Drag down to close monthly budget editor" }), 2, 140);
@@ -43,14 +47,22 @@ test.describe("390px mobile visual QA", () => {
     await expect(detail).toBeVisible();
     await expect(detail.getByText("Recent transactions")).toBeVisible();
     await expect(detail.getByText("Publix")).toBeVisible();
-    await expect(detail.getByRole("button", { name: "Move money" })).toBeVisible();
-    await expect(detail.getByRole("button", { name: "Edit budget" })).toBeVisible();
-    await expect(detail.getByText("Category settings")).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Move money" })).toHaveCount(0);
+    await expect(detail.getByRole("button", { name: "Edit monthly budget" })).toBeVisible();
+    await expect(detail.getByText("Category settings", { exact: true })).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await capture(page, testInfo, "budget-category-sheet");
     await page.locator(".category-sheet").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(detail.getByText("Category settings")).toBeVisible();
+    await expect(detail.getByText("Category settings", { exact: true })).toBeVisible();
     await capture(page, testInfo, "budget-category-sheet-actions");
+  });
+
+  test("a new budget month starts empty instead of reusing current transactions", async ({ page }) => {
+    await page.goto("/budget");
+    await page.getByRole("link", { name: "Aug" }).click();
+    await expect(page.getByRole("navigation", { name: "Budget month" })).toContainText("Aug 2026");
+    await page.getByRole("button", { name: /Groceries/ }).click();
+    await expect(page.getByRole("dialog", { name: "Groceries category detail" }).getByText("No transactions in this month.")).toBeVisible();
   });
 
   test("Home category rows open matching category detail", async ({ page }) => {
@@ -135,6 +147,15 @@ test.describe("390px mobile visual QA", () => {
     await expect(page.getByText("0 transactions need review")).toBeVisible();
   });
 
+  test("Activity can review every visible transaction in a day at once", async ({ page }) => {
+    await mockTransactionUpdates(page);
+    await page.goto("/activity");
+    const today = page.locator(".activity-day-group").filter({ has: page.getByRole("heading", { name: "Today" }) });
+    await today.getByRole("button", { name: "Review 1" }).click();
+    await expect(today.getByText("Reviewed", { exact: true }).first()).toBeVisible();
+    await expect(page.getByRole("status")).toContainText("reviewed for the day");
+  });
+
   test("transaction swipes and visible menu expose review and category actions", async ({ page }) => {
     await mockTransactionUpdates(page);
     await page.goto("/activity");
@@ -201,6 +222,7 @@ test.describe("390px mobile visual QA", () => {
 
   test("Settings manages custom category groups without leaving the page", async ({ page }) => {
     await page.goto("/settings");
+    await page.locator(".category-group-settings > summary").click();
     const groupRowLayout = await page.locator(".category-group-row").first().evaluate((element) => {
       const style = getComputedStyle(element);
       return { display: style.display, alignItems: style.alignItems, minHeight: Number.parseFloat(style.minHeight) };

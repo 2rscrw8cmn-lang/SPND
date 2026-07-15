@@ -18,7 +18,16 @@ create unique index if not exists category_groups_household_name_ci_idx
 insert into public.category_groups (household_id, name, sort_order, is_system)
 select household.id, defaults.name, defaults.sort_order, true
 from public.households household
-cross join (values ('Essentials', 10), ('Lifestyle', 20), ('Goals', 30), ('Excluded', 90)) as defaults(name, sort_order)
+cross join (values ('Income', 5), ('Essentials', 10), ('Lifestyle', 20), ('Goals', 30), ('Excluded', 90)) as defaults(name, sort_order)
+on conflict (household_id, name) do nothing;
+
+insert into public.categories (
+  household_id, name, color, icon, sort_order, is_system,
+  category_group, is_active, is_excluded, show_in_budget
+)
+select household.id, 'Paycheck', '#63D9A2', 'Banknote', 5, true,
+  'Income', true, false, false
+from public.households household
 on conflict (household_id, name) do nothing;
 
 insert into public.category_groups (household_id, name, sort_order, is_system)
@@ -42,13 +51,20 @@ alter table public.categories
 
 alter table public.category_groups enable row level security;
 
+drop policy if exists "members read category_groups" on public.category_groups;
 create policy "members read category_groups" on public.category_groups for select
   using (public.is_household_member(household_id));
+
+drop policy if exists "members insert category_groups" on public.category_groups;
 create policy "members insert category_groups" on public.category_groups for insert
   with check (public.is_household_member(household_id) and is_system = false);
+
+drop policy if exists "members update category_groups" on public.category_groups;
 create policy "members update category_groups" on public.category_groups for update
   using (public.is_household_member(household_id) and is_system = false)
   with check (public.is_household_member(household_id) and is_system = false);
+
+drop policy if exists "members delete category_groups" on public.category_groups;
 create policy "members delete category_groups" on public.category_groups for delete
   using (public.is_household_member(household_id) and is_system = false);
 
@@ -97,10 +113,15 @@ create or replace function public.seed_household_category_groups()
 returns trigger language plpgsql security definer set search_path = '' as $$
 begin
   insert into public.category_groups (household_id, name, sort_order, is_system) values
+    (new.id, 'Income', 5, true),
     (new.id, 'Essentials', 10, true),
     (new.id, 'Lifestyle', 20, true),
     (new.id, 'Goals', 30, true),
     (new.id, 'Excluded', 90, true);
+  insert into public.categories (
+    household_id, name, color, icon, sort_order, is_system,
+    category_group, is_active, is_excluded, show_in_budget
+  ) values (new.id, 'Paycheck', '#63D9A2', 'Banknote', 5, true, 'Income', true, false, false);
   return new;
 end;
 $$;
