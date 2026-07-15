@@ -35,7 +35,7 @@
 
 - Implement the server-only setup-token claim route.
 - Encrypt the returned access URL before storage.
-- Fetch `/accounts?version=2` server-side on a scheduled job; normalize accounts and transactions.
+- Fetch `/accounts?version=2&pending=1` server-side on a scheduled job; normalize Version 2 connections, accounts, pending transactions, and posted transactions.
 - Write sync run status, structured API errors, and user-facing connection health.
 - Provide revoke/disconnect behavior that deletes the encrypted token and stops sync.
 
@@ -55,7 +55,7 @@
 - Build category and budget setup.
 - Show budgeted, spent, pending, remaining, and pacing status.
 - Let both users edit next month's amounts; log changes.
-- Implement a simple, explicit rollover setting per category (default off).
+- Keep rollover off. Provide copy-previous-month and a reusable monthly template instead.
 
 **Acceptance:** budget numbers reconcile to included posted transactions and are easy to understand on a phone.
 
@@ -88,6 +88,12 @@ Before beginning Phase Three, review Phase Two implementation, then use this ord
 5. Visual polish, imports, and reconciliation QA.
 
 Do not begin document imports before the budget and transaction workflows are reliable.
+
+## Final stabilization
+
+The approved accounting behavior is defined in [docs/12-accounting-rules.md](12-accounting-rules.md). The final implementation sequence is [docs/13-final-stabilization-plan.md](13-final-stabilization-plan.md).
+
+These documents supersede conflicting earlier assumptions about income, savings/debt, credit-card treatment, pending balances, rollover, and imports. Begin with S1 only. General imports are retained behind a disabled feature flag and are not part of the default product.
 
 ## Recommended agent prompts
 
