@@ -75,9 +75,19 @@
 - Database backup/export page and CSV export.
 - Error monitoring, privacy review, and production deployment checklist.
 
-## Phase Two
+## Phase Two and Phase Three
 
-The next implementation phase is defined in [docs/09-phase-2-plan.md](09-phase-2-plan.md). Start with P2.1 compact mobile interface, then implement the real monthly Budget workspace, category icons and management, transaction detail/review, SimpleFIN health, document imports, and reconciliation QA. Do not begin document imports before the budget and transaction workflows are reliable.
+Phase Two is defined in [docs/09-phase-2-plan.md](09-phase-2-plan.md). Phase Three is the final product pass in [docs/10-phase-3-premium-mobile-product.md](10-phase-3-premium-mobile-product.md), with screenshot conventions in [docs/11-design-reference-images.md](11-design-reference-images.md).
+
+Before beginning Phase Three, review Phase Two implementation, then use this order:
+
+1. Interaction correctness: Home category taps, date grouping, review filter behavior, sheet dismissal.
+2. Home/Budget information hierarchy and dense category presentation.
+3. Transaction-first category detail.
+4. Gestures with accessible button alternatives.
+5. Visual polish, imports, and reconciliation QA.
+
+Do not begin document imports before the budget and transaction workflows are reliable.
 
 ## Recommended agent prompts
 
