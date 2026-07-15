@@ -75,6 +75,10 @@
 - Database backup/export page and CSV export.
 - Error monitoring, privacy review, and production deployment checklist.
 
+## Phase Two
+
+The next implementation phase is defined in [docs/09-phase-2-plan.md](09-phase-2-plan.md). Start with P2.1 compact mobile interface, then implement the real monthly Budget workspace, category icons and management, transaction detail/review, SimpleFIN health, document imports, and reconciliation QA. Do not begin document imports before the budget and transaction workflows are reliable.
+
 ## Recommended agent prompts
 
 Start each milestone with:
