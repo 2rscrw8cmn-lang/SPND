@@ -36,8 +36,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const before: Snapshot = { displayName: transaction.display_name as string | null, note: transaction.note as string | null, excluded: Boolean(transaction.excluded), isTransfer: Boolean(transaction.is_transfer), isRecurring: Boolean(transaction.is_recurring), reviewStatus: transaction.review_status as string, reviewedAt: transaction.reviewed_at as string | null, reviewedBy: transaction.reviewed_by as string | null, allocations: (currentAllocations ?? []).map((item) => ({ categoryId: item.category_id as string, amountCents: Number(item.amount_cents) })) };
 
   if (body.data.undo) {
-    const { data: lastEvent } = await supabase.from("audit_events").select("metadata").eq("household_id", auth.householdId).eq("entity_type", "transaction").eq("entity_id", id).neq("action", "undone").order("created_at", { ascending: false }).limit(1).maybeSingle();
-    const snapshot = (lastEvent?.metadata as { before?: Snapshot } | null)?.before;
+    const { data: recentEvents } = await supabase.from("audit_events").select("action,metadata").eq("household_id", auth.householdId).eq("entity_type", "transaction").eq("entity_id", id).order("created_at", { ascending: false }).limit(20);
+    const undoIndex = (recentEvents ?? []).findIndex((event) => event.action === "undone");
+    const undoableEvents = undoIndex < 0 ? recentEvents ?? [] : (recentEvents ?? []).slice(0, undoIndex);
+    const snapshot = undoableEvents.map((event) => (event.metadata as { before?: Snapshot } | null)?.before).find((value): value is Snapshot => Boolean(value));
     if (!snapshot) return NextResponse.json({ message: "There is no edit to undo." }, { status: 409 });
     const { error } = await supabase.from("transactions").update({ display_name: snapshot.displayName, note: snapshot.note, excluded: snapshot.excluded, is_transfer: snapshot.isTransfer, is_recurring: snapshot.isRecurring, review_status: snapshot.reviewStatus, reviewed_at: snapshot.reviewedAt, reviewed_by: snapshot.reviewedBy, updated_at: new Date().toISOString() }).eq("id", id).eq("household_id", auth.householdId);
     if (error) return NextResponse.json({ message: "The previous edit could not be restored." }, { status: 500 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { Search, X } from "lucide-react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CategoryIcon } from "@/components/icons";
 import { TransactionDetail } from "@/components/transaction-detail";
 import { TransactionRow } from "@/components/transaction-row";
@@ -13,6 +13,7 @@ type Filter = "all" | "needs_review" | "pending" | "income" | "expenses" | "excl
 type Toast = { message: string; undo?: ActivityTransaction };
 
 export function ActivityList({ initialTransactions, categories, accounts, initialCategoryId }: { initialTransactions: ActivityTransaction[]; categories: BudgetCategory[]; accounts: Account[]; initialCategoryId?: string }) {
+  const quickCategoryRef = useRef<HTMLElement>(null);
   const [transactions, setTransactions] = useState(initialTransactions); const [query, setQuery] = useState(""); const [filter, setFilter] = useState<Filter>(initialCategoryId === "unsorted" ? "needs_review" : "all"); const [categoryFilter, setCategoryFilter] = useState(initialCategoryId ?? ""); const [accountFilter, setAccountFilter] = useState(""); const [dateFilter, setDateFilter] = useState(""); const [selected, setSelected] = useState<ActivityTransaction | null>(null); const [quickCategory, setQuickCategory] = useState<ActivityTransaction | null>(null); const [toast, setToast] = useState<Toast | null>(null);
   const matches = useCallback((transaction: ActivityTransaction) => {
     const matchesQuery = `${transaction.merchant} ${transaction.category} ${transaction.rawDescription}`.toLowerCase().includes(query.toLowerCase());
@@ -22,6 +23,13 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
   }, [accountFilter, categoryFilter, dateFilter, filter, query]);
   const filtered = useMemo(() => transactions.filter(matches), [matches, transactions]);
   const groups = useMemo(() => groupTransactionsByDay(filtered), [filtered]);
+  useEffect(() => {
+    if (!quickCategory) return;
+    const previous = document.activeElement as HTMLElement | null; const overflow = document.body.style.overflow; document.body.style.overflow = "hidden"; quickCategoryRef.current?.focus();
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") setQuickCategory(null); };
+    window.addEventListener("keydown", escape);
+    return () => { window.removeEventListener("keydown", escape); document.body.style.overflow = overflow; previous?.focus(); };
+  }, [quickCategory]);
 
   async function persistReview(transaction: ActivityTransaction, reviewed: boolean) {
     const response = await fetch(`/api/transactions/${transaction.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ reviewed }) });
@@ -56,7 +64,7 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
     <div className="activity-summary" aria-live="polite"><strong>{filtered.length}</strong> transactions{filter === "needs_review" ? " need review" : ""}</div>
     {groups.length ? <div className="activity-groups">{groups.map((group) => <section className="activity-day-group" key={group.key} aria-labelledby={`day-${group.key}`}><h2 id={`day-${group.key}`}>{group.label}</h2><div className="card activity-day-card">{group.transactions.map((transaction) => <TransactionRow transaction={transaction} key={transaction.id} hideDate onSelect={() => setSelected(transaction)} onReview={() => review(transaction)} onChooseCategory={() => setQuickCategory(transaction)} />)}</div></section>)}</div> : <div className="empty-state card"><h2>No activity found</h2><p>Try a different merchant, category, account, date, or filter.</p></div>}
     {selected ? <TransactionDetail key={selected.id} transaction={selected} categories={categories} onClose={() => setSelected(null)} onUpdated={detailUpdated} /> : null}
-    {quickCategory ? <div className="sheet-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) setQuickCategory(null); }}><section className="quick-category-sheet" role="dialog" aria-modal="true" aria-label={`Choose category for ${quickCategory.merchant}`}><div className="sheet-title"><div><p className="eyebrow">Quick category</p><h2>{quickCategory.merchant}</h2></div><button className="icon-button" aria-label="Close category picker" onClick={() => setQuickCategory(null)}><X /></button></div><div className="quick-category-grid"><button onClick={() => chooseCategory(quickCategory, null)}>Unsorted</button>{categories.filter((category) => !category.isExcluded).map((category) => <button key={category.id} onClick={() => chooseCategory(quickCategory, category)}><span style={{ "--category": category.color } as React.CSSProperties}><CategoryIcon name={category.icon} /></span>{category.name}</button>)}</div></section></div> : null}
+    {quickCategory ? <div className="sheet-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) setQuickCategory(null); }}><section ref={quickCategoryRef} tabIndex={-1} className="quick-category-sheet" role="dialog" aria-modal="true" aria-label={`Choose category for ${quickCategory.merchant}`}><div className="sheet-title"><div><p className="eyebrow">Quick category</p><h2>{quickCategory.merchant}</h2></div><button className="icon-button" aria-label="Close category picker" onClick={() => setQuickCategory(null)}><X /></button></div><div className="quick-category-grid"><button onClick={() => chooseCategory(quickCategory, null)}>Unsorted</button>{categories.filter((category) => !category.isExcluded).map((category) => <button key={category.id} onClick={() => chooseCategory(quickCategory, category)}><span style={{ "--category": category.color } as React.CSSProperties}><CategoryIcon name={category.icon} /></span>{category.name}</button>)}</div></section></div> : null}
     {toast ? <div className="undo-toast" role="status"><span>{toast.message}</span>{toast.undo ? <button onClick={() => { const item = toast.undo; setToast(null); if (item) void undoReview(item); }}>Undo</button> : <button aria-label="Dismiss message" onClick={() => setToast(null)}><X /></button>}</div> : null}
   </>;
 }

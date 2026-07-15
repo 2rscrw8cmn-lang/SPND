@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 
 const routes = [
-  { path: "/", name: "home", heading: /Good afternoon/ },
+  { path: "/", name: "home", heading: /Good (morning|afternoon|evening)/ },
   { path: "/budget", name: "budget", heading: "Budget" },
   { path: "/activity", name: "activity", heading: "Activity" },
   { path: "/plan", name: "plan", heading: "Plan" },
@@ -48,10 +48,11 @@ test.describe("390px mobile visual QA", () => {
 
   test("Home category rows open matching category detail", async ({ page }) => {
     await page.goto("/");
-    await page.getByRole("button", { name: /Housing/ }).click();
-    await expect(page.getByRole("dialog", { name: "Housing category detail" })).toBeVisible();
+    await page.getByRole("button", { name: /Groceries/ }).click();
+    await expect(page.getByRole("dialog", { name: "Groceries category detail" })).toBeVisible();
+    await expect(page.getByRole("dialog", { name: "Groceries category detail" }).getByText("Publix")).toBeVisible();
     await page.keyboard.press("Escape");
-    await expect(page.getByRole("dialog", { name: "Housing category detail" })).toBeHidden();
+    await expect(page.getByRole("dialog", { name: "Groceries category detail" })).toBeHidden();
   });
 
   test("transaction detail sheet exposes the full review workflow", async ({ page }, testInfo) => {
@@ -136,6 +137,14 @@ test.describe("390px mobile visual QA", () => {
     await page.getByRole("button", { name: "Actions for Publix" }).click();
     await expect(page.getByRole("menuitem", { name: "Mark reviewed" })).toBeVisible();
     await expect(page.getByRole("menuitem", { name: "Change category" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    const actions = page.getByRole("button", { name: "Actions for Publix" });
+    await actions.focus();
+    await page.keyboard.press("Enter");
+    await expect(page.getByRole("menuitem", { name: "Mark reviewed" })).toBeFocused();
+    await expect(page.getByRole("dialog", { name: /Publix transaction details/ })).toBeHidden();
+    await page.keyboard.press("Escape");
+    await expect(actions).toBeFocused();
   });
 
   test("transaction sheet scroll is safe and handle drag dismisses", async ({ page }) => {
@@ -147,6 +156,28 @@ test.describe("390px mobile visual QA", () => {
     await page.locator(".transaction-sheet").evaluate((element) => { element.scrollTop = 0; });
     await swipe(page, page.getByRole("button", { name: "Drag down to close transaction details" }), 2, 140);
     await expect(detail).toBeHidden();
+  });
+
+  test("odd-cent split defaults balance exactly", async ({ page }) => {
+    await page.goto("/activity");
+    await page.getByRole("button", { name: /Target, Unsorted/ }).click();
+    const detail = page.getByRole("dialog", { name: /Target transaction details/ });
+    await detail.getByRole("button", { name: "Split transaction" }).click();
+    const values = await detail.locator('.split-row input').evaluateAll((inputs) => inputs.map((input) => Number((input as HTMLInputElement).value)));
+    expect(Math.round(values.reduce((sum, value) => sum + value, 0) * 100)).toBe(7421);
+    await expect(detail.locator(".split-total")).toHaveClass(/valid/);
+  });
+
+  test("imports require a reviewed confirmation before apply", async ({ page }) => {
+    await page.goto("/settings/imports");
+    await expect(page.getByText("Ready to apply")).toBeVisible();
+    await page.getByRole("button", { name: "Review and apply" }).click();
+    const dialog = page.getByRole("dialog", { name: "Apply august-budget.csv" });
+    await expect(dialog).toContainText("Apply 2 rows?");
+    await expect(dialog).toContainText("Groceries");
+    await expect(dialog.getByRole("button", { name: "Confirm and apply" })).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
   });
 });
 

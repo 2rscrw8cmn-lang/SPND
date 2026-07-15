@@ -8,7 +8,8 @@ describe("sortBudgetCategories", () => {
       { name: "Active", budgetedCents: 10000, spentCents: 3000, pendingCents: 0 },
       { name: "Over", budgetedCents: 10000, spentCents: 11000, pendingCents: 0 },
       { name: "Approaching", budgetedCents: 10000, spentCents: 7500, pendingCents: 1000 },
+      { name: "Spent without budget", budgetedCents: 0, spentCents: 1200, pendingCents: 0 },
     ];
-    expect(sortBudgetCategories(items).map((item) => item.name)).toEqual(["Over", "Approaching", "Active", "Empty"]);
+    expect(sortBudgetCategories(items).map((item) => item.name)).toEqual(["Spent without budget", "Over", "Approaching", "Active", "Empty"]);
   });
 });

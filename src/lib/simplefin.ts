@@ -3,7 +3,7 @@ import "server-only";
 import { subDays } from "date-fns";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/crypto";
-import { findPendingMatch, pendingMatchKey, sourceFingerprint, type ImportedTransaction } from "@/lib/reconcile";
+import { findPendingMatch, pendingMatchKey, reconcileAllocationAmounts, sourceFingerprint, type ImportedTransaction } from "@/lib/reconcile";
 import { normalizeMerchant } from "@/lib/utils";
 
 type SimpleFinTransaction = { id?: string; posted: number; amount: string; description: string; pending?: boolean };
@@ -189,7 +189,8 @@ export async function syncConnection(connectionId: string, initial = false) {
             if (!existingAllocation) {
               const { data: pendingAllocations } = await admin.from("transaction_allocations").select("category_id,amount_cents,source").eq("transaction_id", matchId);
               if (pendingAllocations?.length) {
-                await admin.from("transaction_allocations").insert(pendingAllocations.map((allocation) => ({ household_id: connection.household_id, transaction_id: savedTransaction.id, category_id: allocation.category_id, amount_cents: allocation.amount_cents, source: allocation.source })));
+                const reconciledAllocations = reconcileAllocationAmounts(pendingAllocations.map((allocation) => ({ category_id: allocation.category_id, amountCents: Number(allocation.amount_cents), source: allocation.source })), transaction.amountCents);
+                await admin.from("transaction_allocations").insert(reconciledAllocations.map((allocation) => ({ household_id: connection.household_id, transaction_id: savedTransaction.id, category_id: allocation.category_id, amount_cents: allocation.amountCents, source: allocation.source })));
                 existingAllocation = { id: "copied-from-pending" };
               }
             }

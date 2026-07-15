@@ -16,9 +16,11 @@ export default async function HomePage() {
   const remainingPercent = budget.totals.budgetedCents > 0 ? Math.max(0, Math.min(100, Math.round((budget.totals.remainingCents / budget.totals.budgetedCents) * 100))) : 0;
   const daysUntilIncome = Math.max(1, differenceInCalendarDays(parseISO(safe.nextIncomeDate), new Date()) + 1);
   const safeTodayCents = Math.floor(safe.safeCents / daysUntilIncome / 100) * 100;
+  const householdHour = Number(new Intl.DateTimeFormat("en-US", { hour: "numeric", hour12: false, timeZone: "America/New_York" }).format(new Date())) % 24;
+  const greeting = householdHour < 12 ? "Good morning" : householdHour < 18 ? "Good afternoon" : "Good evening";
   return (
     <PageShell>
-      <h1 className="page-title">Good afternoon, {user.firstName}</h1>
+      <h1 className="page-title">{greeting}, {user.firstName}</h1>
       <p className="page-subtitle">Here’s what your money can do next.</p>
 
       <section className="hero card" aria-labelledby="safe-heading">
@@ -29,7 +31,7 @@ export default async function HomePage() {
       </section>
 
       <SectionHeading title="Budget pulse" href="/budget" />
-      <HomeBudgetPulse categories={categories.slice(0, 5)} />
+      <HomeBudgetPulse categories={categories} />
 
       <SectionHeading title="Recent activity" href="/activity" />
       <div className="activity-card card">

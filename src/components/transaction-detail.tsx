@@ -19,7 +19,9 @@ export function TransactionDetail({ transaction, categories, onClose, onUpdated 
   const [always, setAlways] = useState(false);
   const [reviewed, setReviewed] = useState(transaction.reviewStatus === "reviewed");
   const [splitting, setSplitting] = useState(transaction.allocations.length > 1);
-  const [splits, setSplits] = useState<Split[]>(transaction.allocations.length > 1 ? transaction.allocations.map((item) => ({ categoryId: item.categoryId, dollars: Math.abs(item.amountCents) / 100 })) : [{ categoryId: transaction.categoryId || categories[0]?.id || "", dollars: Math.abs(transaction.amountCents) / 200 }, { categoryId: categories.find((item) => item.id !== transaction.categoryId)?.id ?? "", dollars: Math.abs(transaction.amountCents) / 200 }]);
+  const absoluteCents = Math.abs(transaction.amountCents);
+  const firstSplitCents = Math.floor(absoluteCents / 2);
+  const [splits, setSplits] = useState<Split[]>(transaction.allocations.length > 1 ? transaction.allocations.map((item) => ({ categoryId: item.categoryId, dollars: Math.abs(item.amountCents) / 100 })) : [{ categoryId: transaction.categoryId || categories[0]?.id || "", dollars: firstSplitCents / 100 }, { categoryId: categories.find((item) => item.id !== transaction.categoryId)?.id ?? "", dollars: (absoluteCents - firstSplitCents) / 100 }]);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const splitCents = splits.reduce((sum, item) => sum + Math.round(item.dollars * 100), 0);
@@ -37,7 +39,7 @@ export function TransactionDetail({ transaction, categories, onClose, onUpdated 
   function dragPointerUp() { const start = dragStart.current; if (!start) return; const distance = start.distance; const velocity = distance / Math.max(1, performance.now() - start.time); dragStart.current = null; if (distance >= 110 || (distance >= 45 && velocity >= 0.65)) onClose(); else setDragY(0); }
 
   async function save() {
-    if (splitting && (splitCents !== targetCents || splits.some((item) => !item.categoryId))) { setMessage(`Splits must total ${formatCurrency(targetCents)} exactly.`); return; }
+    if (splitting && (splitCents !== targetCents || splits.some((item) => !item.categoryId || Math.round(item.dollars * 100) <= 0))) { setMessage(`Each split needs a category and positive amount, totaling ${formatCurrency(targetCents)} exactly.`); return; }
     setSaving(true); setMessage("");
     const sign = transaction.amountCents < 0 ? -1 : 1;
     const payload = { displayName: displayName === transaction.importedMerchant ? null : displayName, categoryId: splitting ? undefined : categoryId || null, allocations: splitting ? splits.map((item) => ({ categoryId: item.categoryId, amountCents: Math.round(item.dollars * 100) * sign })) : undefined, note, excluded, isTransfer, isRecurring, alwaysCategorize: always && !splitting && Boolean(categoryId), reviewed };

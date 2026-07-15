@@ -40,6 +40,7 @@ export type ConnectionHealth = {
 export type ImportInboxItem = {
   id: string; fileName: string; importType: string; status: string; createdAt: string;
   acceptedRows: number; duplicateRows: number; reviewRows: number;
+  errors: string[];
   rows: Array<{ id: string; rowNumber: number; status: string; normalized: Record<string, unknown>; errors: string[] }>;
 };
 
@@ -152,7 +153,14 @@ export async function getConnectionHealth(): Promise<ConnectionHealth> {
 }
 
 export async function getImportInbox(): Promise<ImportInboxItem[]> {
-  if (isDemoMode) return [];
+  if (isDemoMode) return [{
+    id: "00000000-0000-4000-8000-000000000101", fileName: "august-budget.csv", importType: "budget_template", status: "ready", createdAt: new Date().toISOString(), acceptedRows: 2, duplicateRows: 1, reviewRows: 0, errors: [],
+    rows: [
+      { id: "00000000-0000-4000-8000-000000000102", rowNumber: 2, status: "accepted", normalized: { month: "2026-08-01", category: "Groceries", budgetedCents: 80000 }, errors: [] },
+      { id: "00000000-0000-4000-8000-000000000103", rowNumber: 3, status: "accepted", normalized: { month: "2026-08-01", category: "Dining", budgetedCents: 45000 }, errors: [] },
+      { id: "00000000-0000-4000-8000-000000000104", rowNumber: 4, status: "duplicate", normalized: { month: "2026-08-01", category: "Housing", budgetedCents: 187500 }, errors: [] },
+    ],
+  }];
   const context = await householdContext();
   if (!context) return [];
   const { data: imports } = await context.supabase.from("imports").select("id,file_name,import_type,status,created_at,accepted_rows,duplicate_rows,review_rows").eq("household_id", context.householdId).order("created_at", { ascending: false }).limit(25);
@@ -161,7 +169,7 @@ export async function getImportInbox(): Promise<ImportInboxItem[]> {
     context.supabase.from("import_rows").select("id,import_id,row_number,status,normalized_data").in("import_id", ids).order("row_number").limit(500),
     context.supabase.from("import_errors").select("import_id,import_row_id,message,resolved_at").in("import_id", ids).is("resolved_at", null),
   ]) : [{ data: [] }, { data: [] }];
-  return (imports ?? []).map((item) => ({ id: item.id as string, fileName: item.file_name as string, importType: item.import_type as string, status: item.status as string, createdAt: item.created_at as string, acceptedRows: Number(item.accepted_rows), duplicateRows: Number(item.duplicate_rows), reviewRows: Number(item.review_rows), rows: (rows ?? []).filter((row) => row.import_id === item.id).map((row) => ({ id: row.id as string, rowNumber: Number(row.row_number), status: row.status as string, normalized: row.normalized_data as Record<string, unknown>, errors: (errors ?? []).filter((error) => error.import_row_id === row.id).map((error) => error.message as string) })) }));
+  return (imports ?? []).map((item) => ({ id: item.id as string, fileName: item.file_name as string, importType: item.import_type as string, status: item.status as string, createdAt: item.created_at as string, acceptedRows: Number(item.accepted_rows), duplicateRows: Number(item.duplicate_rows), reviewRows: Number(item.review_rows), errors: (errors ?? []).filter((error) => error.import_id === item.id && !error.import_row_id).map((error) => error.message as string), rows: (rows ?? []).filter((row) => row.import_id === item.id).map((row) => ({ id: row.id as string, rowNumber: Number(row.row_number), status: row.status as string, normalized: row.normalized_data as Record<string, unknown>, errors: (errors ?? []).filter((error) => error.import_row_id === row.id).map((error) => error.message as string) })) }));
 }
 
 export async function getReconciliationData() {

@@ -1,8 +1,9 @@
 export type BudgetSortItem = { name: string; budgetedCents: number; spentCents: number; pendingCents: number };
 
 export function budgetUrgency(item: BudgetSortItem) {
-  if (item.budgetedCents <= 0) return 3;
-  const used = (item.spentCents + item.pendingCents) / item.budgetedCents;
+  const usedCents = item.spentCents + item.pendingCents;
+  if (item.budgetedCents <= 0) return usedCents > 0 ? 0 : 3;
+  const used = usedCents / item.budgetedCents;
   if (used > 1) return 0;
   if (used >= 0.8) return 1;
   return 2;

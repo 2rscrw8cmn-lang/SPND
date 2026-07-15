@@ -20,11 +20,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (parsed.data.action === "update_row") {
     if (["applied", "rejected"].includes(item.status as string)) return NextResponse.json({ message: "Completed imports cannot be edited." }, { status: 409 });
     const errors = validateEditedRow(item.import_type as ImportType, parsed.data.normalized); const fingerprint = rowFingerprint(item.import_type as ImportType, parsed.data.normalized);
-    const { data: row } = await admin.from("import_rows").update({ normalized_data: parsed.data.normalized, fingerprint, status: errors.length ? "review" : "accepted", updated_at: new Date().toISOString() }).eq("id", parsed.data.rowId).eq("import_id", id).eq("household_id", auth.householdId).select("id,row_number").maybeSingle();
+    const { data: duplicate } = errors.length ? { data: null } : await admin.from("import_rows").select("id").eq("household_id", auth.householdId).eq("fingerprint", fingerprint).neq("id", parsed.data.rowId).limit(1).maybeSingle();
+    const { data: row } = await admin.from("import_rows").update({ normalized_data: parsed.data.normalized, fingerprint, status: errors.length ? "review" : duplicate ? "duplicate" : "accepted", updated_at: new Date().toISOString() }).eq("id", parsed.data.rowId).eq("import_id", id).eq("household_id", auth.householdId).select("id,row_number").maybeSingle();
     if (!row) return NextResponse.json({ message: "Import row not found." }, { status: 404 });
     await admin.from("import_errors").delete().eq("import_row_id", row.id);
     if (errors.length) await admin.from("import_errors").insert(errors.map((error) => ({ household_id: auth.householdId, import_id: id, import_row_id: row.id, row_number: row.row_number, field: error.field ?? null, code: error.code, message: error.message })));
-    await refreshCounts(admin, id); return NextResponse.json({ message: errors.length ? "Row still needs review." : "Row corrected and ready." });
+    await refreshCounts(admin, id); return NextResponse.json({ message: errors.length ? "Row still needs review." : duplicate ? "Row matches an existing import and was marked duplicate." : "Row corrected and ready." });
   }
   if (item.status === "applied") return NextResponse.json({ message: "This import was already applied." }, { status: 409 });
   if (item.status !== "ready") return NextResponse.json({ message: "Resolve every row needing review before applying." }, { status: 409 });
