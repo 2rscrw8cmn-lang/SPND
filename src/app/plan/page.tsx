@@ -5,6 +5,8 @@ import { PlanEditor } from "@/components/plan-editor";
 import { RecurringCandidates } from "@/components/recurring-candidates";
 import { getPlanData, getRecurringCandidates } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
+import Link from "next/link";
+import { FileUp } from "lucide-react";
 
 export const metadata: Metadata = { title: "Plan" };
 
@@ -18,6 +20,7 @@ export default async function PlanPage() {
     <PageShell>
       <h1 className="page-title">Plan</h1>
       <p className="page-subtitle">Confirmed income and obligations that shape what’s safe to spend.</p>
+      <Link className="plan-import-link card" href="/settings/imports"><FileUp size={20} /><span><strong>Import budget inputs</strong><small>Upload, review, and explicitly apply documents</small></span></Link>
       <div className="summary-grid">
         <div className="summary-card card"><span>Next income</span><strong>{nextIncome ? format(parseISO(nextIncome.date), "MMM d") : "Needs review"}</strong></div>
         <div className="summary-card card"><span>Due before then</span><strong>{formatCurrency(dueBeforeIncome, { compact: true })}</strong></div>

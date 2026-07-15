@@ -5,7 +5,10 @@ import { authenticatedHousehold } from "@/lib/server-auth";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeBudgetMonth } from "@/lib/data";
 
-const schema = z.object({ categoryId: z.string().uuid(), budgetedCents: z.number().int().min(0).max(100_000_000), month: z.string().regex(/^\d{4}-\d{2}(?:-01)?$/).optional() });
+const schema = z.union([
+  z.object({ categoryId: z.string().uuid(), budgetedCents: z.number().int().min(0).max(100_000_000), month: z.string().regex(/^\d{4}-\d{2}(?:-01)?$/).optional() }),
+  z.object({ fromCategoryId: z.string().uuid(), toCategoryId: z.string().uuid(), amountCents: z.number().int().positive().max(100_000_000), month: z.string().regex(/^\d{4}-\d{2}(?:-01)?$/).optional() }).refine((value) => value.fromCategoryId !== value.toCategoryId, "Choose two different categories."),
+]);
 
 export async function POST(request: Request) {
   const auth = await authenticatedHousehold();
@@ -14,6 +17,10 @@ export async function POST(request: Request) {
   if (!body.success) return NextResponse.json({ message: "Enter a valid monthly amount." }, { status: 400 });
   const supabase = await createClient();
   const month = format(normalizeBudgetMonth(body.data.month), "yyyy-MM-dd");
+  if ("fromCategoryId" in body.data) {
+    const { error } = await supabase.rpc("move_budget_money", { p_household_id: auth.householdId, p_month: month, p_from_category_id: body.data.fromCategoryId, p_to_category_id: body.data.toCategoryId, p_amount_cents: body.data.amountCents });
+    return NextResponse.json({ message: error ? "Money could not be moved." : "Budget money moved." }, { status: error ? 400 : 200 });
+  }
   const { error } = await supabase.from("monthly_budgets").upsert({
     household_id: auth.householdId,
     category_id: body.data.categoryId,

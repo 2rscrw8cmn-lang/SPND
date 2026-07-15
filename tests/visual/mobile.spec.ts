@@ -26,14 +26,23 @@ test.describe("390px mobile visual QA", () => {
     });
   }
 
-  test("budget category sheet fits the viewport", async ({ page }, testInfo) => {
+  test("Budget workspace and transaction-first category sheet fit the viewport", async ({ page }, testInfo) => {
     await page.goto("/budget");
-    await page.getByRole("button", { name: /Housing/ }).click();
-    await expect(page.getByRole("region", { name: "Housing settings" })).toBeVisible();
+    await expect(page.getByRole("navigation", { name: "Budget month" })).toContainText("Jul 2026");
+    await expect(page.getByRole("button", { name: "Edit budget" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Add category" })).toHaveCount(0);
+    await page.getByRole("button", { name: /Groceries/ }).click();
+    const detail = page.getByRole("dialog", { name: "Groceries category detail" });
+    await expect(detail).toBeVisible();
+    await expect(detail.getByText("Recent transactions")).toBeVisible();
+    await expect(detail.getByText("Publix")).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Move money" })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Edit budget" })).toBeVisible();
+    await expect(detail.getByText("Category settings")).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await capture(page, testInfo, "budget-category-sheet");
     await page.locator(".category-sheet").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(page.getByRole("button", { name: "Save changes" })).toBeVisible();
+    await expect(detail.getByText("Category settings")).toBeVisible();
     await capture(page, testInfo, "budget-category-sheet-actions");
   });
 
@@ -52,6 +61,8 @@ test.describe("390px mobile visual QA", () => {
     await expect(detail).toBeVisible();
     await expect(detail.getByText("Split transaction")).toBeVisible();
     await expect(detail.getByText("Mark reviewed")).toBeVisible();
+    await expect(detail.getByLabel("Merchant display name")).toHaveValue("Publix");
+    await expect(detail.getByText("Change history")).toBeVisible();
     await expectNoHorizontalOverflow(page);
     await capture(page, testInfo, "activity-transaction-detail");
     await page.locator(".transaction-sheet").evaluate((element) => { element.scrollTop = element.scrollHeight; });

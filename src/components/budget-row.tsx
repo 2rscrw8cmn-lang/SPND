@@ -9,10 +9,12 @@ type BudgetRowProps = {
 };
 
 export function BudgetRow({ category, compact = false, onSelect }: BudgetRowProps) {
-  const remaining = category.budgetedCents - category.spentCents;
-  const percent = Math.min(100, Math.round((category.spentCents / Math.max(1, category.budgetedCents)) * 100));
+  const used = category.spentCents + (category.pendingCents ?? 0);
+  const remaining = category.budgetedCents - used;
+  const percent = Math.min(100, Math.round((used / Math.max(1, category.budgetedCents)) * 100));
+  const state = category.budgetedCents === 0 ? "empty" : remaining < 0 ? "over" : percent >= 80 ? "approaching" : "active";
   return (
-    <article className="budget-row" onClick={onSelect} onKeyDown={onSelect ? (event) => { if (event.key === "Enter" || event.key === " ") onSelect(); } : undefined} role={onSelect ? "button" : undefined} tabIndex={onSelect ? 0 : undefined}>
+    <article className={`budget-row ${state}`} onClick={onSelect} onKeyDown={onSelect ? (event) => { if (event.key === "Enter" || event.key === " ") onSelect(); } : undefined} role={onSelect ? "button" : undefined} tabIndex={onSelect ? 0 : undefined}>
       <div className="category-disc" style={{ "--category": category.color } as React.CSSProperties}>
         <CategoryIcon name={category.icon} />
       </div>
@@ -20,8 +22,8 @@ export function BudgetRow({ category, compact = false, onSelect }: BudgetRowProp
         <div className="budget-row-top">
           <h3>{category.name}</h3>
           <div className="budget-amount">
-            <strong className={remaining < 0 ? "negative" : ""}>{formatCurrency(remaining, { compact: true })}</strong>
-            <span>{remaining < 0 ? "over" : "left"}</span>
+            <strong className={remaining < 0 ? "negative" : ""}>{category.budgetedCents === 0 ? "—" : formatCurrency(Math.abs(remaining), { compact: true })}</strong>
+            <span>{category.budgetedCents === 0 ? "add budget" : remaining < 0 ? "over" : "left"}</span>
           </div>
         </div>
         <div className="progress-track" aria-label={`${percent}% of ${category.name} budget used`}>

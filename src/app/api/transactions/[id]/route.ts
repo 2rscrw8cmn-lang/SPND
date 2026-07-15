@@ -8,6 +8,7 @@ import { normalizeMerchant } from "@/lib/utils";
 
 const allocationSchema = z.object({ categoryId: z.string().uuid(), amountCents: z.number().int() });
 const schema = z.object({
+  displayName: z.string().trim().min(1).max(120).nullable().optional(),
   categoryId: z.string().uuid().nullable().optional(),
   allocations: z.array(allocationSchema).min(2).max(20).optional(),
   excluded: z.boolean().optional(), note: z.string().max(1000).optional(),
@@ -16,7 +17,7 @@ const schema = z.object({
 });
 
 type Snapshot = {
-  note: string | null; excluded: boolean; isTransfer: boolean; isRecurring: boolean;
+  displayName: string | null; note: string | null; excluded: boolean; isTransfer: boolean; isRecurring: boolean;
   reviewStatus: string; reviewedAt: string | null; reviewedBy: string | null;
   allocations: Array<{ categoryId: string; amountCents: number }>;
 };
@@ -28,17 +29,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { id } = await params;
   if (!body.success || !z.string().uuid().safeParse(id).success) return NextResponse.json({ message: "Invalid transaction update." }, { status: 400 });
   const supabase = await createClient();
-  const { data: transaction } = await supabase.from("transactions").select("id,merchant,normalized_merchant,amount_cents,note,excluded,is_transfer,is_recurring,review_status,reviewed_at,reviewed_by,transacted_at")
+  const { data: transaction } = await supabase.from("transactions").select("id,merchant,display_name,normalized_merchant,amount_cents,note,excluded,is_transfer,is_recurring,review_status,reviewed_at,reviewed_by,transacted_at")
     .eq("id", id).eq("household_id", auth.householdId).maybeSingle();
   if (!transaction) return NextResponse.json({ message: "Transaction not found." }, { status: 404 });
   const { data: currentAllocations } = await supabase.from("transaction_allocations").select("category_id,amount_cents").eq("transaction_id", id).eq("household_id", auth.householdId);
-  const before: Snapshot = { note: transaction.note as string | null, excluded: Boolean(transaction.excluded), isTransfer: Boolean(transaction.is_transfer), isRecurring: Boolean(transaction.is_recurring), reviewStatus: transaction.review_status as string, reviewedAt: transaction.reviewed_at as string | null, reviewedBy: transaction.reviewed_by as string | null, allocations: (currentAllocations ?? []).map((item) => ({ categoryId: item.category_id as string, amountCents: Number(item.amount_cents) })) };
+  const before: Snapshot = { displayName: transaction.display_name as string | null, note: transaction.note as string | null, excluded: Boolean(transaction.excluded), isTransfer: Boolean(transaction.is_transfer), isRecurring: Boolean(transaction.is_recurring), reviewStatus: transaction.review_status as string, reviewedAt: transaction.reviewed_at as string | null, reviewedBy: transaction.reviewed_by as string | null, allocations: (currentAllocations ?? []).map((item) => ({ categoryId: item.category_id as string, amountCents: Number(item.amount_cents) })) };
 
   if (body.data.undo) {
     const { data: lastEvent } = await supabase.from("audit_events").select("metadata").eq("household_id", auth.householdId).eq("entity_type", "transaction").eq("entity_id", id).neq("action", "undone").order("created_at", { ascending: false }).limit(1).maybeSingle();
     const snapshot = (lastEvent?.metadata as { before?: Snapshot } | null)?.before;
     if (!snapshot) return NextResponse.json({ message: "There is no edit to undo." }, { status: 409 });
-    const { error } = await supabase.from("transactions").update({ note: snapshot.note, excluded: snapshot.excluded, is_transfer: snapshot.isTransfer, is_recurring: snapshot.isRecurring, review_status: snapshot.reviewStatus, reviewed_at: snapshot.reviewedAt, reviewed_by: snapshot.reviewedBy, updated_at: new Date().toISOString() }).eq("id", id).eq("household_id", auth.householdId);
+    const { error } = await supabase.from("transactions").update({ display_name: snapshot.displayName, note: snapshot.note, excluded: snapshot.excluded, is_transfer: snapshot.isTransfer, is_recurring: snapshot.isRecurring, review_status: snapshot.reviewStatus, reviewed_at: snapshot.reviewedAt, reviewed_by: snapshot.reviewedBy, updated_at: new Date().toISOString() }).eq("id", id).eq("household_id", auth.householdId);
     if (error) return NextResponse.json({ message: "The previous edit could not be restored." }, { status: 500 });
     await replaceAllocations(supabase, auth.householdId, id, snapshot.allocations);
     await supabase.from("audit_events").insert({ household_id: auth.householdId, actor_user_id: auth.userId, entity_type: "transaction", entity_id: id, action: "undone", metadata: { restored: snapshot } });
@@ -63,6 +64,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const now = new Date().toISOString();
   const updates: Record<string, unknown> = { updated_at: now };
+  if (body.data.displayName !== undefined) updates.display_name = body.data.displayName;
   if (body.data.note !== undefined) updates.note = body.data.note;
   if (body.data.excluded !== undefined) updates.excluded = body.data.excluded;
   if (body.data.isTransfer !== undefined) { updates.is_transfer = body.data.isTransfer; if (body.data.isTransfer) updates.excluded = true; }
@@ -84,7 +86,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   } else if (body.data.isRecurring === false) {
     await supabase.from("recurring_items").update({ active: false, updated_at: now }).eq("household_id", auth.householdId).eq("type", Number(transaction.amount_cents) >= 0 ? "income" : "expense").eq("merchant_pattern", normalizeMerchant(transaction.merchant as string));
   }
-  const actions = [body.data.allocations ? "split" : null, body.data.categoryId !== undefined ? "categorized" : null, body.data.excluded !== undefined ? "exclusion_changed" : null, body.data.isTransfer !== undefined ? "transfer_changed" : null, body.data.isRecurring !== undefined ? "recurring_changed" : null, body.data.reviewed !== undefined ? "review_changed" : null, body.data.alwaysCategorize ? "merchant_rule_created" : null].filter(Boolean);
+  const actions = [body.data.displayName !== undefined ? "display_name_changed" : null, body.data.allocations ? "split" : null, body.data.categoryId !== undefined ? "categorized" : null, body.data.excluded !== undefined ? "exclusion_changed" : null, body.data.isTransfer !== undefined ? "transfer_changed" : null, body.data.isRecurring !== undefined ? "recurring_changed" : null, body.data.reviewed !== undefined ? "review_changed" : null, body.data.alwaysCategorize ? "merchant_rule_created" : null].filter(Boolean);
   await supabase.from("audit_events").insert({ household_id: auth.householdId, actor_user_id: auth.userId, entity_type: "transaction", entity_id: id, action: "edited", metadata: { before, actions, categoryId: body.data.categoryId, splitCount: body.data.allocations?.length } });
   return NextResponse.json({ message: body.data.reviewed ? "Transaction reviewed." : "Transaction updated." });
 }

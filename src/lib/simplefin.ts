@@ -139,7 +139,7 @@ export async function syncConnection(connectionId: string, initial = false) {
         accountCount = syncedAccountIds.size;
 
         const { data: existingPending } = await admin.from("transactions")
-          .select("id, account_id, provider_transaction_id, transacted_at, amount_cents, merchant, status, note, excluded, is_transfer, is_recurring, review_status, reviewed_at, reviewed_by")
+          .select("id, account_id, provider_transaction_id, transacted_at, amount_cents, merchant, display_name, status, note, excluded, is_transfer, is_recurring, review_status, reviewed_at, reviewed_by")
           .eq("account_id", account.id).eq("status", "pending").is("superseded_by_transaction_id", null);
         const pending = (existingPending ?? []).map((item) => ({
           accountId: item.account_id as string,
@@ -185,7 +185,7 @@ export async function syncConnection(connectionId: string, initial = false) {
           let { data: existingAllocation } = await admin.from("transaction_allocations").select("id").eq("transaction_id", savedTransaction.id).limit(1).maybeSingle();
           if (matchId) {
             const pendingSource = (existingPending ?? []).find((item) => item.id === matchId);
-            if (pendingSource) await admin.from("transactions").update({ note: pendingSource.note, excluded: pendingSource.excluded, is_transfer: pendingSource.is_transfer, is_recurring: pendingSource.is_recurring, review_status: pendingSource.review_status, reviewed_at: pendingSource.reviewed_at, reviewed_by: pendingSource.reviewed_by, updated_at: now.toISOString() }).eq("id", savedTransaction.id);
+            if (pendingSource) await admin.from("transactions").update({ display_name: pendingSource.display_name, note: pendingSource.note, excluded: pendingSource.excluded, is_transfer: pendingSource.is_transfer, is_recurring: pendingSource.is_recurring, review_status: pendingSource.review_status, reviewed_at: pendingSource.reviewed_at, reviewed_by: pendingSource.reviewed_by, updated_at: now.toISOString() }).eq("id", savedTransaction.id);
             if (!existingAllocation) {
               const { data: pendingAllocations } = await admin.from("transaction_allocations").select("category_id,amount_cents,source").eq("transaction_id", matchId);
               if (pendingAllocations?.length) {

@@ -10,20 +10,24 @@ export type BudgetCategory = {
   id: string; name: string; color: string; icon: string; categoryGroup: string;
   isActive: boolean; isExcluded: boolean; showInBudget: boolean;
   budgetedCents: number; spentCents: number; pendingCents: number;
+  recentTransactions: BudgetTransaction[];
 };
+
+export type BudgetTransaction = { id: string; merchant: string; amountCents: number; isoDate: string; status: "pending" | "posted"; reviewStatus: "needs_review" | "reviewed" };
 
 export type BudgetWorkspace = {
   month: string; categories: BudgetCategory[]; unsortedCount: number; unsortedCents: number;
-  totals: { budgetedCents: number; spentCents: number; pendingCents: number; remainingCents: number };
+  totals: { incomeCents: number; budgetedCents: number; spentCents: number; pendingCents: number; remainingCents: number };
 };
 
 export type ActivityTransaction = {
-  id: string; merchant: string; categoryId: string; category: string; amountCents: number;
+  id: string; merchant: string; importedMerchant: string; categoryId: string; category: string; amountCents: number;
   date: string; isoDate: string; status: "pending" | "posted"; color: string;
   accountId: string; accountName: string; rawDescription: string; note: string;
   excluded: boolean; isTransfer: boolean; isRecurring: boolean;
   reviewStatus: "needs_review" | "reviewed"; reviewedAt: string | null;
   allocations: Array<{ categoryId: string; category: string; amountCents: number }>;
+  auditHistory: Array<{ id: string; action: string; createdAt: string }>;
 };
 
 export type ConnectionHealth = {
@@ -57,14 +61,14 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
   const monthDate = normalizeBudgetMonth(monthValue);
   const month = format(monthDate, "yyyy-MM-dd");
   if (isDemoMode) {
-    const categories = demoCategories;
+    const categories = demoCategories.map((category) => ({ ...category, recentTransactions: demoTransactions.filter((transaction) => transaction.categoryId === category.id).map(({ id, merchant, amountCents, isoDate, status, reviewStatus }) => ({ id, merchant, amountCents, isoDate, status, reviewStatus })) }));
     const budgetedCents = categories.reduce((sum, item) => sum + item.budgetedCents, 0);
     const spentCents = categories.reduce((sum, item) => sum + item.spentCents, 0);
     const pendingCents = categories.reduce((sum, item) => sum + item.pendingCents, 0);
-    return { month, categories, unsortedCount: 1, unsortedCents: 7421, totals: { budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
+    return { month, categories, unsortedCount: 1, unsortedCents: 7421, totals: { incomeCents: 342500, budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
   }
   const context = await householdContext();
-  if (!context) return { month, categories: [], unsortedCount: 0, unsortedCents: 0, totals: { budgetedCents: 0, spentCents: 0, pendingCents: 0, remainingCents: 0 } };
+  if (!context) return { month, categories: [], unsortedCount: 0, unsortedCents: 0, totals: { incomeCents: 0, budgetedCents: 0, spentCents: 0, pendingCents: 0, remainingCents: 0 } };
   const monthStart = monthDate.toISOString();
   const nextMonthStart = addMonths(monthDate, 1).toISOString();
   const [{ data: budgets }, { data: categoryRows }] = await Promise.all([
@@ -74,7 +78,7 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
     context.supabase.from("categories").select("id,name,color,icon,category_group,is_active,is_excluded,show_in_budget").eq("household_id", context.householdId).order("sort_order"),
   ]);
   const { data: transactions } = await context.supabase.from("transactions")
-    .select("id,status,amount_cents").eq("household_id", context.householdId).eq("excluded", false).lt("amount_cents", 0)
+    .select("id,status,amount_cents,merchant,transacted_at,review_status").eq("household_id", context.householdId).eq("excluded", false)
     .is("superseded_by_transaction_id", null)
     .or(`and(status.eq.posted,posted_at.gte.${monthStart},posted_at.lt.${nextMonthStart}),and(status.eq.pending,transacted_at.gte.${monthStart},transacted_at.lt.${nextMonthStart})`);
   const transactionIds = (transactions ?? []).map((transaction) => transaction.id as string);
@@ -85,11 +89,19 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
   const pending = new Map<string, number>();
   const statusById = new Map((transactions ?? []).map((transaction) => [transaction.id as string, transaction.status as string]));
   const allocatedIds = new Set<string>();
+  const transactionById = new Map((transactions ?? []).map((transaction) => [transaction.id as string, transaction]));
+  const recentByCategory = new Map<string, BudgetTransaction[]>();
   for (const allocation of allocations ?? []) {
     allocatedIds.add(allocation.transaction_id as string);
     const amount = Math.abs(Number(allocation.amount_cents));
     const target = statusById.get(allocation.transaction_id as string) === "pending" ? pending : spent;
     target.set(allocation.category_id as string, (target.get(allocation.category_id as string) ?? 0) + amount);
+    const transaction = transactionById.get(allocation.transaction_id as string);
+    if (transaction && Number(transaction.amount_cents) < 0) {
+      const list = recentByCategory.get(allocation.category_id as string) ?? [];
+      list.push({ id: transaction.id as string, merchant: transaction.merchant as string, amountCents: Number(allocation.amount_cents), isoDate: transaction.transacted_at as string, status: transaction.status as "pending" | "posted", reviewStatus: transaction.review_status as "needs_review" | "reviewed" });
+      recentByCategory.set(allocation.category_id as string, list);
+    }
   }
   const budgetByCategory = new Map((budgets ?? []).map((budget) => [budget.category_id as string, Number(budget.budgeted_cents)]));
   const unsorted = (transactions ?? []).filter((transaction) => Number(transaction.amount_cents) < 0 && !allocatedIds.has(transaction.id as string));
@@ -105,12 +117,14 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
       budgetedCents: budgetByCategory.get(category.id as string) ?? 0,
       spentCents: spent.get(category.id as string) ?? 0,
       pendingCents: pending.get(category.id as string) ?? 0,
+      recentTransactions: (recentByCategory.get(category.id as string) ?? []).sort((a, b) => b.isoDate.localeCompare(a.isoDate)).slice(0, 8),
   }));
   const visible = categories.filter((category) => category.isActive && category.showInBudget && !category.isExcluded);
   const budgetedCents = visible.reduce((sum, item) => sum + item.budgetedCents, 0);
   const spentCents = visible.reduce((sum, item) => sum + item.spentCents, 0);
   const pendingCents = visible.reduce((sum, item) => sum + item.pendingCents, 0);
-  return { month, categories, unsortedCount: unsorted.length, unsortedCents: unsorted.reduce((sum, item) => sum + Math.abs(Number(item.amount_cents)), 0), totals: { budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
+  const incomeCents = (transactions ?? []).filter((transaction) => transaction.status === "posted" && Number(transaction.amount_cents) > 0).reduce((sum, transaction) => sum + Number(transaction.amount_cents), 0);
+  return { month, categories, unsortedCount: unsorted.length, unsortedCents: unsorted.reduce((sum, item) => sum + Math.abs(Number(item.amount_cents)), 0), totals: { incomeCents, budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
 }
 
 export async function getBudgetData(monthValue?: string) {
@@ -167,19 +181,22 @@ export async function getReconciliationData() {
 }
 
 export async function getActivityData(limit = 100): Promise<ActivityTransaction[]> {
-  if (isDemoMode) return demoTransactions;
+  if (isDemoMode) return demoTransactions.map((transaction) => ({ ...transaction, importedMerchant: transaction.merchant, auditHistory: transaction.id === "t1" ? [{ id: "demo-audit", action: "Imported from SimpleFIN", createdAt: transaction.isoDate }] : [] }));
   const context = await householdContext();
   if (!context) return [];
   const { data } = await context.supabase.from("transactions")
-    .select("id,merchant,amount_cents,status,transacted_at,posted_at,raw_description,note,excluded,is_transfer,is_recurring,review_status,reviewed_at,account_id,accounts(name),transaction_allocations(category_id,amount_cents,categories(name,color))")
+    .select("id,merchant,display_name,amount_cents,status,transacted_at,posted_at,raw_description,note,excluded,is_transfer,is_recurring,review_status,reviewed_at,account_id,accounts(name),transaction_allocations(category_id,amount_cents,categories(name,color))")
     .eq("household_id", context.householdId).is("superseded_by_transaction_id", null).order("transacted_at", { ascending: false }).limit(limit);
+  const transactionIds = (data ?? []).map((transaction) => transaction.id as string);
+  const { data: auditEvents } = transactionIds.length ? await context.supabase.from("audit_events").select("id,entity_id,action,created_at").eq("household_id", context.householdId).eq("entity_type", "transaction").in("entity_id", transactionIds).order("created_at", { ascending: false }).limit(300) : { data: [] };
   return (data ?? []).map((transaction) => {
     const allocations = transaction.transaction_allocations as unknown as Array<{ category_id: string; amount_cents: number; categories: { name: string; color: string } | null }>;
     const category = allocations?.[0]?.categories;
     const account = transaction.accounts as unknown as { name: string } | null;
     return {
       id: transaction.id as string,
-      merchant: transaction.merchant as string,
+      merchant: (transaction.display_name as string | null) || transaction.merchant as string,
+      importedMerchant: transaction.merchant as string,
       categoryId: category?.name === "Unsorted" ? "" : (((transaction.transaction_allocations as unknown as Array<{ category_id?: string }>)?.[0]?.category_id ?? "") as string),
       category: category?.name ?? "Unsorted",
       amountCents: Number(transaction.amount_cents),
@@ -197,6 +214,7 @@ export async function getActivityData(limit = 100): Promise<ActivityTransaction[
       reviewStatus: transaction.review_status as "needs_review" | "reviewed",
       reviewedAt: transaction.reviewed_at as string | null,
       allocations: (allocations ?? []).map((allocation) => ({ categoryId: allocation.category_id, category: allocation.categories?.name ?? "Unsorted", amountCents: Number(allocation.amount_cents) })),
+      auditHistory: (auditEvents ?? []).filter((event) => event.entity_id === transaction.id).map((event) => ({ id: event.id as string, action: String(event.action).replaceAll("_", " "), createdAt: event.created_at as string })),
     };
   });
 }
