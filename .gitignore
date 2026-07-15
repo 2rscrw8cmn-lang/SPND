@@ -3,6 +3,9 @@ node_modules/
 out/
 .vercel/
 coverage/
+playwright-report/
+test-results/
+artifacts/visual/
 *.tsbuildinfo
 *.log
 .env

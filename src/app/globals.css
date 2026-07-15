@@ -82,8 +82,18 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .insight-icon { width: 42px; height: 42px; flex: none; display: grid; place-items: center; color: #0d0e12; background: var(--lime); border-radius: 50%; }
 .insight p { margin: 0; font-size: 17px; font-weight: 700; line-height: 1.35; }
 
-.transaction-row { min-height: 68px; display: grid; grid-template-columns: 40px 1fr auto 16px; gap: 10px; align-items: center; padding: 10px 13px; border-bottom: 1px solid var(--border); }
-.transaction-row:last-child { border-bottom: 0; }
+.transaction-swipe-shell { position: relative; overflow: visible; border-bottom: 1px solid var(--border); background: var(--surface); }
+.transaction-swipe-shell:last-child { border-bottom: 0; }
+.transaction-row { position: relative; z-index: 2; min-height: 68px; display: grid; grid-template-columns: 40px 1fr auto 44px; gap: 10px; align-items: center; padding: 8px 8px 8px 13px; border: 0; background: var(--surface); touch-action: pan-y; transition: transform 180ms ease, opacity 180ms ease; }
+.transaction-swipe-action { position: absolute; z-index: 1; inset-block: 0; width: 108px; display: flex; align-items: center; gap: 7px; padding: 0 14px; font-size: 13px; font-weight: 800; }
+.transaction-swipe-action svg { width: 18px; }
+.transaction-swipe-action.review { left: 0; color: #10120a; background: var(--lime); }
+.transaction-swipe-action.category { right: 0; justify-content: flex-end; color: var(--text); background: var(--violet); }
+.row-actions-button { width: 44px; height: 44px; display: grid; place-items: center; border: 0; border-radius: 12px; color: var(--muted); background: transparent; cursor: pointer; }
+.row-actions-menu { position: absolute; z-index: 8; top: 58px; right: 8px; width: 190px; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-raised); box-shadow: 0 14px 40px rgba(0,0,0,.45); }
+.row-actions-menu button { width: 100%; min-height: 44px; display: flex; align-items: center; gap: 9px; padding: 0 13px; border: 0; border-bottom: 1px solid var(--border); color: var(--text); background: transparent; text-align: left; cursor: pointer; }
+.row-actions-menu button:last-child { border-bottom: 0; }
+.row-actions-menu button:disabled { color: var(--muted); }
 .merchant-mark { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: #0d0e12; background: var(--merchant); font-size: 19px; font-weight: 900; }
 .transaction-main, .transaction-amount { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .transaction-main strong { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -91,6 +101,9 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .transaction-amount { text-align: right; font-variant-numeric: tabular-nums; }
 .transaction-amount .income { color: var(--lime); }
 .transaction-amount em { color: var(--yellow); font-style: normal; font-size: 12px; padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--yellow) 35%, transparent); border-radius: 999px; }
+.activity-groups { display: grid; gap: 20px; }
+.activity-day-group h2 { margin: 0 4px 8px; color: var(--muted); font-size: 13px; letter-spacing: .5px; }
+.activity-day-card { overflow: visible; }
 
 .summary-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; margin: 24px 0; }
 .summary-card { padding: 18px; }
@@ -137,6 +150,15 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .sheet-backdrop { position: fixed; z-index: 50; inset: 0; display: flex; align-items: flex-end; justify-content: center; background: rgba(0,0,0,.66); }
 .category-sheet { width: min(100%, 560px); max-height: 92dvh; overflow-y: auto; padding: 10px 18px calc(22px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-bottom: 0; border-radius: 24px 24px 0 0; background: var(--surface); }
 .sheet-handle { width: 42px; height: 5px; margin: 0 auto 14px; border-radius: 99px; background: #464b57; }
+.home-category-sheet, .quick-category-sheet { width: min(100%, 560px); max-height: 92dvh; overflow-y: auto; padding: 10px 18px calc(22px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-bottom: 0; border-radius: 24px 24px 0 0; background: var(--surface); }
+.category-sheet-heading { display: flex; align-items: center; gap: 12px; }
+.category-sheet-heading .category-disc { width: 44px; height: 44px; }
+.category-detail-status { display: block; margin: 2px 0 16px; font-size: 24px; }
+.category-detail-metrics { display: grid; grid-template-columns: repeat(3, 1fr); margin: 0 0 16px; overflow: hidden; border: 1px solid var(--border); border-radius: 14px; }
+.category-detail-metrics div { min-width: 0; padding: 11px; border-right: 1px solid var(--border); }
+.category-detail-metrics div:last-child { border-right: 0; }
+.category-detail-metrics dt { margin-bottom: 5px; color: var(--muted); font-size: 11px; }
+.category-detail-metrics dd { margin: 0; overflow: hidden; text-overflow: ellipsis; font-size: 14px; font-weight: 750; font-variant-numeric: tabular-nums; }
 .sheet-title { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 18px; }
 .sheet-title h2 { margin: 0; }
 .sheet-title .eyebrow { margin-bottom: 7px; }
@@ -160,7 +182,10 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .filter-grid .field { margin-bottom: 8px; }
 .activity-summary { margin: 0 4px 10px; color: var(--muted); font-size: 13px; }
 .activity-summary strong { color: var(--text); }
-.transaction-sheet { width: min(100%, 620px); max-height: 96dvh; overflow-y: auto; padding: 10px 18px calc(24px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-bottom: 0; border-radius: 24px 24px 0 0; background: var(--surface); }
+.transaction-sheet { width: min(100%, 620px); max-height: 96dvh; overflow-y: auto; padding: 0 18px calc(24px + env(safe-area-inset-bottom)); border: 1px solid var(--border); border-bottom: 0; border-radius: 24px 24px 0 0; background: var(--surface); transition: transform 180ms ease; will-change: transform; }
+.sheet-drag-handle { width: 100%; height: 44px; display: grid; place-items: center; border: 0; background: transparent; cursor: grab; touch-action: none; }
+.sheet-drag-handle:active { cursor: grabbing; }
+.sheet-drag-handle span { width: 42px; height: 5px; border-radius: 99px; background: #535966; }
 .transaction-detail-header { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; }
 .transaction-detail-header .icon-button { justify-self: start; }
 .status-badge { padding: 5px 9px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; }
@@ -194,6 +219,12 @@ button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible
 .transaction-options label { min-height: 48px; display: flex; align-items: center; gap: 11px; border-bottom: 1px solid var(--border); font-size: 14px; }
 .transaction-options input { width: 19px; height: 19px; accent-color: var(--lime); }
 .transaction-save { width: 100%; display: flex; align-items: center; justify-content: center; gap: 8px; }
+.quick-category-sheet { padding-top: 18px; }
+.quick-category-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+.quick-category-grid button { min-height: 52px; display: flex; align-items: center; gap: 9px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 13px; color: var(--text); background: var(--surface-raised); text-align: left; cursor: pointer; }
+.quick-category-grid button > span { width: 34px; height: 34px; flex: none; display: grid; place-items: center; border-radius: 10px; color: var(--canvas); background: var(--category); }
+.undo-toast { position: fixed; z-index: 70; left: 16px; right: 16px; bottom: calc(82px + env(safe-area-inset-bottom)); min-height: 54px; display: flex; align-items: center; justify-content: space-between; gap: 12px; max-width: 520px; margin: auto; padding: 7px 8px 7px 15px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-raised); box-shadow: 0 16px 42px rgba(0,0,0,.5); font-size: 13px; }
+.undo-toast button { min-width: 44px; min-height: 44px; border: 0; border-radius: 11px; color: var(--lime); background: transparent; font-weight: 800; cursor: pointer; }
 .connection-health { overflow: hidden; margin: 14px 0; border: 1px solid var(--border); border-radius: 16px; background: var(--canvas); }
 .connection-health.error { border-color: color-mix(in srgb, var(--yellow) 45%, var(--border)); }
 .connection-status { min-height: 62px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-bottom: 1px solid var(--border); }

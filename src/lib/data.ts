@@ -184,7 +184,7 @@ export async function getActivityData(limit = 100): Promise<ActivityTransaction[
       category: category?.name ?? "Unsorted",
       amountCents: Number(transaction.amount_cents),
       date: format(new Date(transaction.transacted_at as string), "MMM d"),
-      isoDate: (transaction.posted_at ?? transaction.transacted_at) as string,
+      isoDate: transaction.transacted_at as string,
       status: transaction.status as "pending" | "posted",
       color: category?.color ?? "#A6ACB8",
       accountId: transaction.account_id as string,

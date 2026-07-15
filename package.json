@@ -13,6 +13,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:visual": "playwright test",
+    "test:visual:update": "playwright test --update-snapshots",
+    "test:visual:ui": "playwright test --ui",
     "import:transactions": "tsx --env-file=.env.local scripts/import-transactions.ts",
     "db:types": "supabase gen types typescript --local > src/types/database.generated.ts"
   },
@@ -35,6 +38,7 @@
     "zod": "latest"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "4.3.2",
     "@testing-library/jest-dom": "latest",
     "@testing-library/react": "latest",

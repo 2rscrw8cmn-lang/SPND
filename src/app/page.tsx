@@ -1,7 +1,7 @@
 import { format, parseISO } from "date-fns";
 import { Check, ChevronRight } from "lucide-react";
 import Link from "next/link";
-import { BudgetRow } from "@/components/budget-row";
+import { HomeBudgetPulse } from "@/components/home-budget-pulse";
 import { PageShell } from "@/components/page-shell";
 import { SectionHeading } from "@/components/section-heading";
 import { TransactionRow } from "@/components/transaction-row";
@@ -31,9 +31,7 @@ export default async function HomePage() {
       </section>
 
       <SectionHeading title="Budget pulse" href="/budget" />
-      <div className="budget-stack card">
-        {categories.slice(0, 4).map((category) => <BudgetRow category={category} compact key={category.id} />)}
-      </div>
+      <HomeBudgetPulse categories={categories.slice(0, 4)} />
 
       <Link href="/budget" className="insight card">
         <span className="insight-icon"><Check size={25} strokeWidth={3} /></span>

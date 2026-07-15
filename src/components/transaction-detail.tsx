@@ -2,13 +2,14 @@
 
 import { format } from "date-fns";
 import { Check, ChevronDown, RotateCcw, X } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ActivityTransaction, BudgetCategory } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 
 type Split = { categoryId: string; dollars: number };
 
 export function TransactionDetail({ transaction, categories, onClose, onUpdated }: { transaction: ActivityTransaction; categories: BudgetCategory[]; onClose: () => void; onUpdated: (transaction: ActivityTransaction) => void }) {
+  const sheetRef = useRef<HTMLElement>(null); const dragStart = useRef<{ y: number; time: number; distance: number } | null>(null); const [dragY, setDragY] = useState(0);
   const [categoryId, setCategoryId] = useState(transaction.categoryId);
   const [note, setNote] = useState(transaction.note);
   const [excluded, setExcluded] = useState(transaction.excluded);
@@ -22,6 +23,17 @@ export function TransactionDetail({ transaction, categories, onClose, onUpdated 
   const [saving, setSaving] = useState(false);
   const splitCents = splits.reduce((sum, item) => sum + Math.round(item.dollars * 100), 0);
   const targetCents = Math.abs(transaction.amountCents);
+
+  useEffect(() => {
+    const previousFocus = document.activeElement as HTMLElement | null; const previousOverflow = document.body.style.overflow; document.body.style.overflow = "hidden"; sheetRef.current?.focus();
+    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", escape);
+    return () => { window.removeEventListener("keydown", escape); document.body.style.overflow = previousOverflow; previousFocus?.focus(); };
+  }, [onClose]);
+
+  function dragPointerDown(event: React.PointerEvent<HTMLButtonElement>) { if (event.button !== 0) return; dragStart.current = { y: event.clientY, time: performance.now(), distance: 0 }; event.currentTarget.setPointerCapture(event.pointerId); }
+  function dragPointerMove(event: React.PointerEvent<HTMLButtonElement>) { const start = dragStart.current; if (!start) return; event.preventDefault(); const distance = Math.max(0, event.clientY - start.y); start.distance = Math.max(start.distance, distance); setDragY(distance); }
+  function dragPointerUp() { const start = dragStart.current; if (!start) return; const distance = start.distance; const velocity = distance / Math.max(1, performance.now() - start.time); dragStart.current = null; if (distance >= 110 || (distance >= 45 && velocity >= 0.65)) onClose(); else setDragY(0); }
 
   async function save() {
     if (splitting && (splitCents !== targetCents || splits.some((item) => !item.categoryId))) { setMessage(`Splits must total ${formatCurrency(targetCents)} exactly.`); return; }
@@ -40,8 +52,8 @@ export function TransactionDetail({ transaction, categories, onClose, onUpdated 
     setSaving(true); const response = await fetch(`/api/transactions/${transaction.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ undo: true }) }); const body = await response.json() as { message?: string }; setSaving(false); setMessage(body.message ?? ""); if (response.ok) window.location.reload();
   }
 
-  return <div className="sheet-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section className="transaction-sheet" aria-label={`${transaction.merchant} transaction details`}>
-    <div className="sheet-handle" /><div className="transaction-detail-header"><button className="icon-button" onClick={onClose} aria-label="Close"><X /></button><span className={`status-badge ${transaction.status}`}>{transaction.status}</span><button className="undo-button" disabled={saving} onClick={undo}><RotateCcw size={16} /> Undo</button></div>
+  return <div className="sheet-backdrop" onPointerDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><section ref={sheetRef} tabIndex={-1} role="dialog" aria-modal="true" className="transaction-sheet" style={{ transform: `translateY(${dragY}px)` }} aria-label={`${transaction.merchant} transaction details`}>
+    <button className="sheet-drag-handle" aria-label="Drag down to close transaction details" onPointerDown={dragPointerDown} onPointerMove={dragPointerMove} onPointerUp={dragPointerUp} onPointerCancel={() => { dragStart.current = null; setDragY(0); }}><span /></button><div className="transaction-detail-header"><button className="icon-button" onClick={onClose} aria-label="Close"><X /></button><span className={`status-badge ${transaction.status}`}>{transaction.status}</span><button className="undo-button" disabled={saving} onClick={undo}><RotateCcw size={16} /> Undo</button></div>
     <div className="transaction-hero"><h2>{transaction.merchant}</h2><strong className={transaction.amountCents > 0 ? "income" : ""}>{formatCurrency(transaction.amountCents, { signed: true })}</strong><p>{format(new Date(transaction.isoDate), "EEEE, MMMM d, yyyy")}</p></div>
     <dl className="transaction-facts"><div><dt>Account</dt><dd>{transaction.accountName}</dd></div><div><dt>Description</dt><dd>{transaction.rawDescription || "No provider description"}</dd></div><div><dt>Review</dt><dd>{reviewed ? "Reviewed" : "Needs review"}</dd></div></dl>
     <div className="field"><label htmlFor="detail-category">Category</label><select id="detail-category" disabled={splitting} value={categoryId} onChange={(event) => setCategoryId(event.target.value)}><option value="">Unsorted</option>{categories.filter((item) => !item.isExcluded).map((category) => <option value={category.id} key={category.id}>{category.name}</option>)}</select></div>
