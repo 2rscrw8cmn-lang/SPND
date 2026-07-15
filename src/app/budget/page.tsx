@@ -1,17 +1,16 @@
 import type { Metadata } from "next";
-import { BudgetEditor } from "@/components/budget-editor";
+import { BudgetWorkspace } from "@/components/budget-workspace";
 import { PageShell } from "@/components/page-shell";
-import { getBudgetData } from "@/lib/data";
+import { getBudgetWorkspace } from "@/lib/data";
 
 export const metadata: Metadata = { title: "Budget" };
 
-export default async function BudgetPage() {
-  const categories = await getBudgetData();
+export default async function BudgetPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+  const { month } = await searchParams;
+  const workspace = await getBudgetWorkspace(month);
   return (
     <PageShell>
-      <h1 className="page-title">July budget</h1>
-      <p className="page-subtitle">A clean monthly plan, shared by the Turco Household.</p>
-      <BudgetEditor initialCategories={categories} />
+      <BudgetWorkspace initialWorkspace={workspace} />
     </PageShell>
   );
 }

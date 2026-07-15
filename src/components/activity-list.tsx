@@ -15,10 +15,11 @@ type Transaction = {
   color: string;
 };
 
-export function ActivityList({ initialTransactions, categories }: { initialTransactions: Transaction[]; categories: Array<{ id: string; name: string; color: string }> }) {
+export function ActivityList({ initialTransactions, categories, initialCategoryId }: { initialTransactions: Transaction[]; categories: Array<{ id: string; name: string; color: string }>; initialCategoryId?: string }) {
   const [transactions, setTransactions] = useState(initialTransactions);
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "pending" | "income">("all");
+  const [categoryFilter, setCategoryFilter] = useState(initialCategoryId ?? "");
   const [selected, setSelected] = useState<Transaction | null>(null);
   const [categoryId, setCategoryId] = useState("");
   const [always, setAlways] = useState(false);
@@ -29,9 +30,10 @@ export function ActivityList({ initialTransactions, categories }: { initialTrans
     () => transactions.filter((transaction) => {
       const matchesQuery = `${transaction.merchant} ${transaction.category}`.toLowerCase().includes(query.toLowerCase());
       const matchesFilter = filter === "all" || (filter === "pending" ? transaction.status === "pending" : transaction.amountCents > 0);
-      return matchesQuery && matchesFilter;
+      const matchesCategory = !categoryFilter || (categoryFilter === "unsorted" ? !transaction.categoryId : transaction.categoryId === categoryFilter);
+      return matchesQuery && matchesFilter && matchesCategory;
     }),
-    [filter, query, transactions],
+    [categoryFilter, filter, query, transactions],
   );
 
   return (
@@ -48,6 +50,7 @@ export function ActivityList({ initialTransactions, categories }: { initialTrans
           </button>
         ))}
       </div>
+      {categoryFilter ? <button className="active-filter" onClick={() => setCategoryFilter("")}>Category: {categoryFilter === "unsorted" ? "Unsorted" : categories.find((item) => item.id === categoryFilter)?.name ?? "Selected"} <span>×</span></button> : null}
       <div className="card activity-card">
         {filtered.length ? filtered.map((transaction) => <TransactionRow transaction={transaction} key={transaction.id} onSelect={() => { setSelected(transaction); setCategoryId(transaction.categoryId); setMessage(""); }} />) : (
           <div className="empty-state"><h2>No activity found</h2><p>Try a different merchant, category, or filter.</p></div>

@@ -3,11 +3,13 @@ import { addDays, formatISO } from "date-fns";
 const today = new Date();
 
 export const demoCategories = [
-  { id: "groceries", name: "Groceries", color: "#45D9E1", icon: "cart", budgetedCents: 80000, spentCents: 38800 },
-  { id: "dining", name: "Dining", color: "#FF705B", icon: "utensils", budgetedCents: 45000, spentCents: 26600 },
-  { id: "family", name: "Kids & Family", color: "#9B6CFF", icon: "users", budgetedCents: 60000, spentCents: 29400 },
-  { id: "transport", name: "Transportation", color: "#58A6FF", icon: "car", budgetedCents: 35000, spentCents: 17200 },
-  { id: "entertainment", name: "Entertainment", color: "#C9FF4A", icon: "play", budgetedCents: 20000, spentCents: 8700 },
+  { id: "housing", name: "Housing", color: "#9B6CFF", icon: "House", categoryGroup: "Essentials", isActive: true, isExcluded: false, showInBudget: true, budgetedCents: 187500, spentCents: 187500, pendingCents: 0 },
+  { id: "groceries", name: "Groceries", color: "#45D9E1", icon: "ShoppingCart", categoryGroup: "Essentials", isActive: true, isExcluded: false, showInBudget: true, budgetedCents: 80000, spentCents: 38800, pendingCents: 7421 },
+  { id: "transport", name: "Transportation", color: "#58A6FF", icon: "Car", categoryGroup: "Essentials", isActive: true, isExcluded: false, showInBudget: true, budgetedCents: 35000, spentCents: 17200, pendingCents: 0 },
+  { id: "dining", name: "Dining", color: "#FF705B", icon: "Utensils", categoryGroup: "Lifestyle", isActive: true, isExcluded: false, showInBudget: true, budgetedCents: 45000, spentCents: 26600, pendingCents: 0 },
+  { id: "family", name: "Family & Kids", color: "#9B6CFF", icon: "Users", categoryGroup: "Lifestyle", isActive: true, isExcluded: false, showInBudget: true, budgetedCents: 60000, spentCents: 29400, pendingCents: 0 },
+  { id: "entertainment", name: "Entertainment", color: "#C9FF4A", icon: "Clapperboard", categoryGroup: "Lifestyle", isActive: true, isExcluded: false, showInBudget: true, budgetedCents: 20000, spentCents: 8700, pendingCents: 0 },
+  { id: "savings", name: "Savings", color: "#C9FF4A", icon: "PiggyBank", categoryGroup: "Goals", isActive: true, isExcluded: false, showInBudget: true, budgetedCents: 50000, spentCents: 50000, pendingCents: 0 },
 ];
 
 export const demoTransactions = [

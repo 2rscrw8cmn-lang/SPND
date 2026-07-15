@@ -1,19 +1,26 @@
 import "server-only";
 
-import { endOfMonth, format, startOfMonth } from "date-fns";
+import { addMonths, endOfMonth, format, isValid, parseISO, startOfMonth } from "date-fns";
 import { demoCategories, demoPlan, demoSafeBreakdown, demoTransactions } from "@/lib/demo-data";
 import { isDemoMode } from "@/lib/env";
 import { calculateSafeToSpnd } from "@/lib/safe-to-spnd";
 import { createClient } from "@/lib/supabase/server";
 
-const iconFor = (name: string) => {
-  const normalized = name.toLowerCase();
-  if (normalized.includes("dining")) return "utensils";
-  if (normalized.includes("family")) return "users";
-  if (normalized.includes("transport")) return "car";
-  if (normalized.includes("entertain")) return "play";
-  return "cart";
+export type BudgetCategory = {
+  id: string; name: string; color: string; icon: string; categoryGroup: string;
+  isActive: boolean; isExcluded: boolean; showInBudget: boolean;
+  budgetedCents: number; spentCents: number; pendingCents: number;
 };
+
+export type BudgetWorkspace = {
+  month: string; categories: BudgetCategory[]; unsortedCount: number; unsortedCents: number;
+  totals: { budgetedCents: number; spentCents: number; pendingCents: number; remainingCents: number };
+};
+
+export function normalizeBudgetMonth(value?: string) {
+  const parsed = value ? parseISO(`${value.slice(0, 7)}-01`) : new Date();
+  return startOfMonth(isValid(parsed) ? parsed : new Date());
+}
 
 async function householdContext() {
   const supabase = await createClient();
@@ -24,41 +31,67 @@ async function householdContext() {
   return membership ? { supabase, householdId: membership.household_id as string } : null;
 }
 
-export async function getBudgetData() {
-  if (isDemoMode) return demoCategories;
+export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWorkspace> {
+  const monthDate = normalizeBudgetMonth(monthValue);
+  const month = format(monthDate, "yyyy-MM-dd");
+  if (isDemoMode) {
+    const categories = demoCategories;
+    const budgetedCents = categories.reduce((sum, item) => sum + item.budgetedCents, 0);
+    const spentCents = categories.reduce((sum, item) => sum + item.spentCents, 0);
+    const pendingCents = categories.reduce((sum, item) => sum + item.pendingCents, 0);
+    return { month, categories, unsortedCount: 1, unsortedCents: 7421, totals: { budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
+  }
   const context = await householdContext();
-  if (!context) return [];
-  const monthStart = format(startOfMonth(new Date()), "yyyy-MM-dd");
-  const monthEnd = endOfMonth(new Date()).toISOString();
+  if (!context) return { month, categories: [], unsortedCount: 0, unsortedCents: 0, totals: { budgetedCents: 0, spentCents: 0, pendingCents: 0, remainingCents: 0 } };
+  const monthStart = monthDate.toISOString();
+  const nextMonthStart = addMonths(monthDate, 1).toISOString();
   const [{ data: budgets }, { data: categoryRows }] = await Promise.all([
     context.supabase.from("monthly_budgets")
       .select("category_id,budgeted_cents")
-      .eq("household_id", context.householdId).eq("month", monthStart),
-    context.supabase.from("categories").select("id,name,color").eq("household_id", context.householdId).order("sort_order"),
+      .eq("household_id", context.householdId).eq("month", month),
+    context.supabase.from("categories").select("id,name,color,icon,category_group,is_active,is_excluded,show_in_budget").eq("household_id", context.householdId).order("sort_order"),
   ]);
   const { data: transactions } = await context.supabase.from("transactions")
-    .select("id").eq("household_id", context.householdId).eq("status", "posted").eq("excluded", false)
-    .gte("posted_at", startOfMonth(new Date()).toISOString()).lte("posted_at", monthEnd);
+    .select("id,status,amount_cents").eq("household_id", context.householdId).eq("excluded", false).lt("amount_cents", 0)
+    .or(`and(status.eq.posted,posted_at.gte.${monthStart},posted_at.lt.${nextMonthStart}),and(status.eq.pending,transacted_at.gte.${monthStart},transacted_at.lt.${nextMonthStart})`);
   const transactionIds = (transactions ?? []).map((transaction) => transaction.id as string);
   const { data: allocations } = transactionIds.length
-    ? await context.supabase.from("transaction_allocations").select("category_id,amount_cents").in("transaction_id", transactionIds)
+    ? await context.supabase.from("transaction_allocations").select("transaction_id,category_id,amount_cents").in("transaction_id", transactionIds)
     : { data: [] };
   const spent = new Map<string, number>();
+  const pending = new Map<string, number>();
+  const statusById = new Map((transactions ?? []).map((transaction) => [transaction.id as string, transaction.status as string]));
+  const allocatedIds = new Set<string>();
   for (const allocation of allocations ?? []) {
+    allocatedIds.add(allocation.transaction_id as string);
     const amount = Math.abs(Number(allocation.amount_cents));
-    spent.set(allocation.category_id as string, (spent.get(allocation.category_id as string) ?? 0) + amount);
+    const target = statusById.get(allocation.transaction_id as string) === "pending" ? pending : spent;
+    target.set(allocation.category_id as string, (target.get(allocation.category_id as string) ?? 0) + amount);
   }
   const budgetByCategory = new Map((budgets ?? []).map((budget) => [budget.category_id as string, Number(budget.budgeted_cents)]));
-  return (categoryRows ?? []).filter((category) => category.name !== "Unsorted").map((category) => {
-    return {
+  const unsorted = (transactions ?? []).filter((transaction) => Number(transaction.amount_cents) < 0 && !allocatedIds.has(transaction.id as string));
+  const categories = (categoryRows ?? []).filter((category) => category.name !== "Unsorted").map((category) => ({
       id: category.id as string,
       name: category.name as string,
       color: category.color as string,
-      icon: iconFor(category.name as string),
+      icon: category.icon as string,
+      categoryGroup: category.category_group as string,
+      isActive: Boolean(category.is_active),
+      isExcluded: Boolean(category.is_excluded),
+      showInBudget: Boolean(category.show_in_budget),
       budgetedCents: budgetByCategory.get(category.id as string) ?? 0,
       spentCents: spent.get(category.id as string) ?? 0,
-    };
-  });
+      pendingCents: pending.get(category.id as string) ?? 0,
+  }));
+  const visible = categories.filter((category) => category.isActive && category.showInBudget && !category.isExcluded);
+  const budgetedCents = visible.reduce((sum, item) => sum + item.budgetedCents, 0);
+  const spentCents = visible.reduce((sum, item) => sum + item.spentCents, 0);
+  const pendingCents = visible.reduce((sum, item) => sum + item.pendingCents, 0);
+  return { month, categories, unsortedCount: unsorted.length, unsortedCents: unsorted.reduce((sum, item) => sum + Math.abs(Number(item.amount_cents)), 0), totals: { budgetedCents, spentCents, pendingCents, remainingCents: budgetedCents - spentCents } };
+}
+
+export async function getBudgetData(monthValue?: string) {
+  return (await getBudgetWorkspace(monthValue)).categories.filter((category) => category.isActive && category.showInBudget && !category.isExcluded);
 }
 
 export async function getAccountsData() {

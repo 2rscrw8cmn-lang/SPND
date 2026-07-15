@@ -6,12 +6,14 @@ import { PageShell } from "@/components/page-shell";
 import { SectionHeading } from "@/components/section-heading";
 import { TransactionRow } from "@/components/transaction-row";
 import { requireUser } from "@/lib/auth";
-import { getActivityData, getBudgetData, getSafeBreakdown } from "@/lib/data";
+import { getActivityData, getBudgetWorkspace, getSafeBreakdown } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 
 export default async function HomePage() {
   const user = await requireUser();
-  const [categories, transactions, safe] = await Promise.all([getBudgetData(), getActivityData(4), getSafeBreakdown()]);
+  const [budget, transactions, safe] = await Promise.all([getBudgetWorkspace(), getActivityData(5), getSafeBreakdown()]);
+  const categories = budget.categories.filter((category) => category.isActive && category.showInBudget && !category.isExcluded);
+  const remainingPercent = budget.totals.budgetedCents > 0 ? Math.max(0, Math.min(100, Math.round((budget.totals.remainingCents / budget.totals.budgetedCents) * 100))) : 0;
   return (
     <PageShell>
       <h1 className="page-title">Good afternoon, {user.firstName}</h1>
@@ -25,12 +27,12 @@ export default async function HomePage() {
           <div className="confidence"><span className="confidence-dot" /> {safe.needsReview ? "Needs review" : "Inputs are up to date"}</div>
           <Link className="breakdown-button" href="/safe-to-spnd">See breakdown <ChevronRight size={18} /></Link>
         </div>
-        <div className="hero-ring" aria-label="74 percent of monthly budget remaining"><strong>74%</strong><span>of budget remaining</span></div>
+        <div className="hero-ring" style={{ "--remaining": `${remainingPercent}%` } as React.CSSProperties} aria-label={`${remainingPercent} percent of monthly budget remaining`}><strong>{remainingPercent}%</strong><span>of budget remaining</span></div>
       </section>
 
       <SectionHeading title="Budget pulse" href="/budget" />
       <div className="budget-stack card">
-        {categories.slice(0, 3).map((category) => <BudgetRow category={category} compact key={category.id} />)}
+        {categories.slice(0, 4).map((category) => <BudgetRow category={category} compact key={category.id} />)}
       </div>
 
       <Link href="/budget" className="insight card">
