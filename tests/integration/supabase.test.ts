@@ -2,9 +2,10 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const enabled = process.env.RUN_SUPABASE_INTEGRATION === "true";
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
-const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+const unquote = (value: string | undefined) => (value ?? "").replace(/^"(.*)"$/, "$1");
+const url = unquote(process.env.NEXT_PUBLIC_SUPABASE_URL);
+const anonKey = unquote(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY);
+const serviceKey = unquote(process.env.SUPABASE_SERVICE_ROLE_KEY);
 const suite = enabled ? describe : describe.skip;
 
 suite("disposable Supabase accounting workflows", () => {
