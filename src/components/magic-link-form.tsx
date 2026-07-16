@@ -5,9 +5,9 @@ import { createClient } from "@/lib/supabase/client";
 
 const allowedEmails = new Set(["zack@turco.family", "stephanie@turco.family"]);
 
-export function MagicLinkForm() {
+export function MagicLinkForm({ initialMessage = "" }: { initialMessage?: string }) {
   const [email, setEmail] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(initialMessage);
   const [loading, setLoading] = useState(false);
 
   async function submit(event: React.FormEvent<HTMLFormElement>) {
@@ -34,7 +34,7 @@ export function MagicLinkForm() {
         setMessage(`Sign-in could not start: ${error.message}`);
       }
     } else {
-      setMessage("Check your email for a secure sign-in link.");
+      setMessage("Check your email, open the newest link, then choose Continue to SPND.");
     }
   }
 

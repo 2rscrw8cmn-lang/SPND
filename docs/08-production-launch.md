@@ -20,6 +20,16 @@ In **Authentication → URL Configuration**, add:
 - `http://localhost:3000/auth/confirm`
 - `https://spnd-omega.vercel.app/auth/confirm`
 
+Set **Site URL** to `https://spnd-omega.vercel.app`.
+
+In **Authentication → Email Templates → Magic Link**, use a direct token-hash link to SPND's confirmation screen:
+
+```html
+<a href="{{ .RedirectTo }}?token_hash={{ .TokenHash }}&type=email">Sign in to SPND</a>
+```
+
+`emailRedirectTo` already contains `/auth/confirm`, so do not append that path again in the template. The confirmation screen deliberately waits for the user to press **Continue to SPND** before consuming the one-time token. This prevents email security scanners from using the token during link previews and allows the link to be opened on a different device from the one that requested it.
+
 Keep email OTP/magic-link authentication enabled. Disable public user discovery and do not add other household invitations without updating `household_invites`.
 
 ### Email delivery

@@ -3,6 +3,13 @@ import { expect, test } from "@playwright/test";
 const routes = ["/", "/budget", "/activity", "/plan", "/income"];
 
 test.describe("required responsive viewports", () => {
+  test("magic-link confirmation waits for explicit user action", async ({ page }) => {
+    await page.goto("/auth/confirm?token_hash=test-token&type=email");
+    await expect(page.getByRole("heading", { name: "One last step." })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Continue to SPND" })).toBeVisible();
+    await expect(page).toHaveURL(/token_hash=test-token/);
+  });
+
   test("primary workflows have no horizontal overflow", async ({ page }) => {
     for (const route of routes) {
       await page.goto(route);
