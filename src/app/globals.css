@@ -751,3 +751,14 @@ button:disabled { cursor: not-allowed; opacity: .52; }
   .activity-groups,.income-section { max-width: 760px; }
   .activity-mode-switcher,.activity-search,.filter-panel,.chip-row,.activity-summary { max-width: 760px; }
 }
+
+/* Mobile stabilization: status-bar protection, truthful budget states, calm review hero. */
+body::before { content: ""; position: fixed; z-index: 90; inset: 0 0 auto 0; height: env(safe-area-inset-top, 0px); background: color-mix(in srgb, var(--canvas) 78%, transparent); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); pointer-events: none; }
+.safe-value.safe-value-state { font-size: clamp(28px, 8.5vw, 44px); letter-spacing: -1.1px; line-height: 1.08; }
+.budget-group-progress.over i { background: linear-gradient(90deg, var(--red), #ff8a76); }
+.budget-row.unbudgeted .progress-track span { background: color-mix(in srgb, var(--red) 34%, #282b33) !important; box-shadow: none; }
+.budget-row.unbudgeted .budget-amount span { color: color-mix(in srgb, var(--red) 62%, var(--muted)); }
+.budget-amount { flex: none; max-width: 58%; text-align: right; }
+.budget-amount strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.budget-zero-warning.neutral { border-color: var(--border); color: var(--muted); background: var(--surface); font-weight: 650; text-decoration: none; }
+.budget-zero-warning.neutral svg { color: var(--yellow); flex: none; }

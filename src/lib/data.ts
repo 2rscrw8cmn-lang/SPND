@@ -3,6 +3,7 @@ import "server-only";
 import { addMonths, endOfMonth, format, isValid, parseISO, startOfMonth } from "date-fns";
 import { demoCategories, demoPlan, demoSafeBreakdown, demoTransactions } from "@/lib/demo-data";
 import { isDemoMode } from "@/lib/env";
+import { resolveCategoryIcon } from "@/lib/category-style";
 import { calculateSafeToSpnd } from "@/lib/safe-to-spnd";
 import { incomeOccurrencesForMonth, receivedIncomeTotal, type IncomeSchedule } from "@/lib/expected-income";
 import { createClient } from "@/lib/supabase/server";
@@ -155,7 +156,7 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
       id: category.id as string,
       name: category.name as string,
       color: category.color as string,
-      icon: category.icon as string,
+      icon: resolveCategoryIcon(category.icon as string | null, category.name as string),
       categoryGroup: category.category_group as string,
       isActive: Boolean(category.is_active),
       isExcluded: Boolean(category.is_excluded),
@@ -305,6 +306,16 @@ export async function getReconciliationData() {
 }
 
 export type ActivityQuery = { query?: string; filter?: string; categoryId?: string; accountId?: string; date?: string; before?: string; transactionId?: string };
+
+export async function getReviewCount(): Promise<number> {
+  if (isDemoMode) return demoTransactions.filter((transaction) => transaction.reviewStatus === "needs_review" && !transaction.excluded && !transaction.isTransfer).length;
+  const context = await householdContext();
+  if (!context) return 0;
+  const { count } = await context.supabase.from("transactions").select("id", { count: "exact", head: true })
+    .eq("household_id", context.householdId).is("superseded_by_transaction_id", null)
+    .eq("review_status", "needs_review").eq("excluded", false).eq("is_transfer", false);
+  return count ?? 0;
+}
 
 export async function getActivityData(limit = 100, monthValue?: string, options: ActivityQuery = {}): Promise<ActivityTransaction[]> {
   const monthDate = monthValue ? normalizeBudgetMonth(monthValue) : null;

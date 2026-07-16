@@ -15,7 +15,7 @@ const schema = z.object({
   excluded: z.boolean().optional(), note: z.string().max(1000).optional(),
   alwaysCategorize: z.boolean().default(false), isTransfer: z.boolean().optional(),
   isRecurring: z.boolean().optional(), reviewed: z.boolean().optional(), undo: z.boolean().optional(),
-  expectedUpdatedAt: z.string().datetime().optional(),
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
 });
 
 type Snapshot = {
