@@ -42,7 +42,7 @@ suite("disposable Supabase accounting workflows", () => {
     ]);
     if (membership.error) throw membership.error;
     const categories = await admin.from("categories").insert([
-      { household_id: householdId, name: "From", color: "#45D9E1", icon: "Wallet", category_group: "Flexible" },
+      { household_id: householdId, name: "From", color: "#45D9E1", icon: "Wallet", category_group: "Essentials" },
       { household_id: householdId, name: "To", color: "#9B6CFF", icon: "PiggyBank", category_group: "Goals" },
     ]).select("id,name");
     if (categories.error) throw categories.error;
