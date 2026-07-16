@@ -25,7 +25,7 @@ export default async function PlanPage() {
     <p className="page-subtitle">Tell SPND what is coming before it hits your accounts. This is what makes Safe to SPND useful.</p>
     {importsEnabled() ? <Link className="plan-import-link card" href="/settings/imports"><FileUp size={20} /><span><strong>Experimental import inbox</strong><small>Controlled testing only</small></span></Link> : null}
     <div className="plan-summary-grid">
-      <div className="summary-card card"><span><CalendarClock size={16} /> Next income</span><strong>{nextIncome ? format(parseISO(nextIncome.date), "MMM d") : "Not planned"}</strong><small>{nextIncome ? `${formatCurrency(dueBeforeIncome)} due first` : "Add a paycheck or deposit"}</small></div>
+      <Link className="summary-card card plan-income-link" href="/income"><span><CalendarClock size={16} /> Next income</span><strong>{nextIncome ? format(parseISO(nextIncome.date), "MMM d") : "Not planned"}</strong><small>{nextIncome ? `${formatCurrency(dueBeforeIncome)} due first` : "Add a paycheck or deposit"}</small></Link>
       <div className="summary-card card"><span><ArrowDownLeft size={16} /> Coming in</span><strong className="plan-income">{formatCurrency(upcomingIncome, { compact: true })}</strong><small>all upcoming income</small></div>
       <div className="summary-card card"><span><ArrowUpRight size={16} /> Going out</span><strong>{formatCurrency(upcomingExpenses, { compact: true })}</strong><small>all upcoming obligations</small></div>
     </div>

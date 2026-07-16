@@ -18,7 +18,9 @@ export type CategoryGroup = { id: string; name: string; sortOrder: number; isSys
 
 export type HouseholdSummary = { name: string; timezone: string; minimumCashBufferCents: number; memberCount: number };
 
-export type BudgetTransaction = { id: string; merchant: string; amountCents: number; isoDate: string; status: "pending" | "posted"; reviewStatus: "needs_review" | "reviewed" };
+export type AllocationSource = "manual" | "merchant_rule" | "merchant_history" | "provider" | "default" | "unsorted";
+
+export type BudgetTransaction = { id: string; merchant: string; amountCents: number; isoDate: string; status: "pending" | "posted"; reviewStatus: "needs_review" | "reviewed"; allocationSource?: AllocationSource | null };
 
 export type BudgetWorkspace = {
   month: string; categories: BudgetCategory[]; categoryGroups: CategoryGroup[]; unsortedCount: number; unsortedCents: number;
@@ -28,6 +30,9 @@ export type BudgetWorkspace = {
 };
 
 export type ExpectedIncomeSource = IncomeSchedule & { acceptableVarianceCents: number | null };
+export type ReceivedIncomeTransaction = ActivityTransaction & { matchedTo: { plannedItemId: string; name: string } | null };
+export type OpenIncomeExpectation = { id: string; name: string; date: string; amountCents: number };
+export type IncomeViewData = { month: string; expectedCents: number; receivedCents: number; remainingCents: number; upcoming: BudgetWorkspace["expectedIncome"]; received: ReceivedIncomeTransaction[]; unmatched: ActivityTransaction[]; openExpectations: OpenIncomeExpectation[] };
 
 const emptyBudgetTotals = { expectedIncomeCents: 0, receivedIncomeCents: 0, remainingExpectedIncomeCents: 0, budgetedCents: 0, leftToAssignCents: 0, spentCents: 0, pendingCents: 0, remainingCents: 0 };
 
@@ -45,8 +50,10 @@ export type ActivityTransaction = {
   accountId: string; accountName: string; rawDescription: string; note: string;
   excluded: boolean; isTransfer: boolean; isRecurring: boolean;
   reviewStatus: "needs_review" | "reviewed"; reviewedAt: string | null;
+  updatedAt: string;
+  allocationSource: AllocationSource | null;
   allocations: Array<{ categoryId: string; category: string; amountCents: number }>;
-  auditHistory: Array<{ id: string; action: string; createdAt: string }>;
+  auditHistory: Array<{ id: string; action: string; createdAt: string; undoable: boolean }>;
 };
 
 export type ConnectionHealth = {
@@ -117,7 +124,7 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
     .or(`and(status.eq.posted,posted_at.gte.${monthStart},posted_at.lt.${nextMonthStart}),and(status.eq.pending,transacted_at.gte.${monthStart},transacted_at.lt.${nextMonthStart})`);
   const transactionIds = (transactions ?? []).map((transaction) => transaction.id as string);
   const { data: allocations } = transactionIds.length
-    ? await context.supabase.from("transaction_allocations").select("transaction_id,category_id,amount_cents").in("transaction_id", transactionIds)
+    ? await context.supabase.from("transaction_allocations").select("transaction_id,category_id,amount_cents,source").in("transaction_id", transactionIds)
     : { data: [] };
   const spent = new Map<string, number>();
   const pending = new Map<string, number>();
@@ -133,7 +140,7 @@ export async function getBudgetWorkspace(monthValue?: string): Promise<BudgetWor
       const target = statusById.get(allocation.transaction_id as string) === "pending" ? pending : spent;
       target.set(allocation.category_id as string, (target.get(allocation.category_id as string) ?? 0) + amount);
       const list = recentByCategory.get(allocation.category_id as string) ?? [];
-      list.push({ id: transaction.id as string, merchant: transaction.merchant as string, amountCents: Number(allocation.amount_cents), isoDate: transaction.transacted_at as string, status: transaction.status as "pending" | "posted", reviewStatus: transaction.review_status as "needs_review" | "reviewed" });
+      list.push({ id: transaction.id as string, merchant: transaction.merchant as string, amountCents: Number(allocation.amount_cents), isoDate: transaction.transacted_at as string, status: transaction.status as "pending" | "posted", reviewStatus: transaction.review_status as "needs_review" | "reviewed", allocationSource: (allocation.source ?? null) as AllocationSource | null });
       recentByCategory.set(allocation.category_id as string, list);
     }
   }
@@ -180,6 +187,43 @@ export async function getExpectedIncomeSources(): Promise<ExpectedIncomeSource[]
   const context = await householdContext(); if (!context) return [];
   const { data } = await context.supabase.from("expected_income_sources").select("id,name,expected_amount_cents,cadence,explicit_dates,next_expected_date,active,source_type,acceptable_variance_cents").eq("household_id", context.householdId).order("active", { ascending: false }).order("next_expected_date");
   return (data ?? []).map((source) => ({ id: source.id as string, name: source.name as string, expectedAmountCents: Number(source.expected_amount_cents), cadence: source.cadence as string | null, explicitDates: (source.explicit_dates as string[] | null) ?? [], nextExpectedDate: source.next_expected_date as string | null, active: Boolean(source.active), sourceType: source.source_type as "recurring" | "one_time", acceptableVarianceCents: source.acceptable_variance_cents === null ? null : Number(source.acceptable_variance_cents) }));
+}
+
+export async function getIncomeView(monthValue?: string): Promise<IncomeViewData> {
+  const workspace = await getBudgetWorkspace(monthValue);
+  const month = workspace.month.slice(0, 7);
+  const deposits = (await getActivityData(500, month, { filter: "income" })).filter((transaction) => transaction.amountCents > 0 && transaction.status === "posted" && !transaction.excluded && !transaction.isTransfer);
+  if (isDemoMode) {
+    const received = deposits.filter((transaction) => transaction.merchant === "Payroll").map((transaction) => ({ ...transaction, matchedTo: { plannedItemId: demoPlan[0]!.id, name: "Paycheck" } }));
+    const unmatched = deposits.filter((transaction) => transaction.merchant !== "Payroll");
+    const receivedCents = received.reduce((sum, transaction) => sum + transaction.amountCents, 0);
+    return { month: workspace.month, expectedCents: workspace.totals.expectedIncomeCents, receivedCents, remainingCents: Math.max(0, workspace.totals.expectedIncomeCents - receivedCents), upcoming: workspace.expectedIncome, received, unmatched, openExpectations: [] };
+  }
+  const context = await householdContext();
+  if (!context) return { month: workspace.month, expectedCents: 0, receivedCents: 0, remainingCents: 0, upcoming: [], received: [], unmatched: [], openExpectations: [] };
+  const start = `${month}-01`; const end = format(addMonths(parseISO(start), 1), "yyyy-MM-dd");
+  const [{ data: matches }, { data: openItems }] = await Promise.all([
+    context.supabase.from("planned_items").select("id,name,matched_transaction_id").eq("household_id", context.householdId).eq("type", "income").eq("state", "matched").gte("date", start).lt("date", end).not("matched_transaction_id", "is", null),
+    context.supabase.from("planned_items").select("id,name,date,amount_cents").eq("household_id", context.householdId).eq("type", "income").eq("state", "confirmed").is("matched_transaction_id", null).gte("date", start).lt("date", end).order("date"),
+  ]);
+  const matchByTransaction = new Map((matches ?? []).map((item) => [item.matched_transaction_id as string, { plannedItemId: item.id as string, name: item.name as string }]));
+  const received = deposits.filter((transaction) => matchByTransaction.has(transaction.id)).map((transaction) => ({ ...transaction, matchedTo: matchByTransaction.get(transaction.id) ?? null }));
+  const unmatched = deposits.filter((transaction) => !matchByTransaction.has(transaction.id));
+  const receivedCents = received.reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  const openExpectations = (openItems ?? []).map((item) => ({ id: item.id as string, name: item.name as string, date: item.date as string, amountCents: Number(item.amount_cents) }));
+  return { month: workspace.month, expectedCents: workspace.totals.expectedIncomeCents, receivedCents, remainingCents: Math.max(0, workspace.totals.expectedIncomeCents - receivedCents), upcoming: workspace.expectedIncome, received, unmatched, openExpectations };
+}
+
+export async function getNextExpectedIncome(): Promise<{ date: string; amountCents: number; name: string } | null> {
+  if (isDemoMode) return { date: demoPlan[0]!.date, amountCents: demoPlan[0]!.amountCents, name: demoPlan[0]!.name };
+  const context = await householdContext(); if (!context) return null;
+  const { data } = await context.supabase.from("expected_income_sources").select("id,name,expected_amount_cents,cadence,explicit_dates,next_expected_date,active,source_type").eq("household_id", context.householdId).eq("active", true);
+  const sources = (data ?? []).map((source) => ({ id: source.id as string, name: source.name as string, expectedAmountCents: Number(source.expected_amount_cents), cadence: source.cadence as string | null, explicitDates: (source.explicit_dates as string[] | null) ?? [], nextExpectedDate: source.next_expected_date as string | null, active: Boolean(source.active), sourceType: source.source_type as "recurring" | "one_time" }));
+  const today = format(new Date(), "yyyy-MM-dd");
+  const occurrence = [today.slice(0, 7), format(addMonths(new Date(), 1), "yyyy-MM")]
+    .flatMap((month) => incomeOccurrencesForMonth(sources, month))
+    .find((item) => item.date >= today);
+  return occurrence ? { date: occurrence.date, amountCents: occurrence.amountCents, name: occurrence.name } : null;
 }
 
 export async function getMerchantRules() { if (isDemoMode) return [{ id:"demo-rule", normalizedMerchant:"netflix", categoryId:"entertainment", active:true }]; const context=await householdContext(); if(!context)return []; const{data}=await context.supabase.from("merchant_rules").select("id,normalized_merchant,category_id,active").eq("household_id",context.householdId).order("normalized_merchant"); return(data??[]).map((item)=>({id:item.id as string,normalizedMerchant:item.normalized_merchant as string,categoryId:item.category_id as string,active:Boolean(item.active)})); }
@@ -265,11 +309,11 @@ export type ActivityQuery = { query?: string; filter?: string; categoryId?: stri
 export async function getActivityData(limit = 100, monthValue?: string, options: ActivityQuery = {}): Promise<ActivityTransaction[]> {
   const monthDate = monthValue ? normalizeBudgetMonth(monthValue) : null;
   const inSelectedMonth = (isoDate: string) => !monthDate || (new Date(isoDate) >= monthDate && new Date(isoDate) < addMonths(monthDate, 1));
-  if (isDemoMode) return demoTransactions.filter((transaction) => inSelectedMonth(transaction.isoDate)).map((transaction) => ({ ...transaction, reviewStatus: transaction.excluded ? "reviewed" as const : transaction.reviewStatus, importedMerchant: transaction.merchant, auditHistory: transaction.id === "t1" ? [{ id: "demo-audit", action: "Imported from SimpleFIN", createdAt: transaction.isoDate }] : [] }));
+  if (isDemoMode) return demoTransactions.filter((transaction) => inSelectedMonth(transaction.isoDate)).map((transaction) => ({ ...transaction, updatedAt: transaction.isoDate, reviewStatus: transaction.excluded ? "reviewed" as const : transaction.reviewStatus, importedMerchant: transaction.merchant, allocationSource: transaction.id === "t1" ? "merchant_rule" as const : transaction.allocations.length ? "manual" as const : null, auditHistory: transaction.id === "t1" ? [{ id: "demo-audit", action: "Imported from SimpleFIN", createdAt: transaction.isoDate, undoable: false }] : [] }));
   const context = await householdContext();
   if (!context) return [];
   let query = context.supabase.from("transactions")
-    .select("id,merchant,display_name,amount_cents,status,transacted_at,posted_at,raw_description,note,excluded,is_transfer,is_recurring,review_status,reviewed_at,account_id,accounts(name),transaction_allocations(category_id,amount_cents,categories(name,color))")
+    .select("id,merchant,display_name,amount_cents,status,transacted_at,posted_at,raw_description,note,excluded,is_transfer,is_recurring,review_status,reviewed_at,updated_at,account_id,accounts(name),transaction_allocations(category_id,amount_cents,source,categories(name,color))")
     .eq("household_id", context.householdId).is("superseded_by_transaction_id", null);
   if (monthDate) query = query.gte("transacted_at", monthDate.toISOString()).lt("transacted_at", addMonths(monthDate, 1).toISOString());
   if (options.before) query = query.lt("transacted_at", options.before);
@@ -289,9 +333,9 @@ export async function getActivityData(limit = 100, monthValue?: string, options:
   }
   const { data } = await query.order("transacted_at", { ascending: false }).limit(limit);
   const transactionIds = (data ?? []).map((transaction) => transaction.id as string);
-  const { data: auditEvents } = transactionIds.length ? await context.supabase.from("audit_events").select("id,entity_id,action,created_at").eq("household_id", context.householdId).eq("entity_type", "transaction").in("entity_id", transactionIds).order("created_at", { ascending: false }).limit(300) : { data: [] };
+  const { data: auditEvents } = transactionIds.length ? await context.supabase.from("audit_events").select("id,entity_id,action,created_at,metadata").eq("household_id", context.householdId).eq("entity_type", "transaction").in("entity_id", transactionIds).order("created_at", { ascending: false }).limit(300) : { data: [] };
   return (data ?? []).map((transaction) => {
-    const allocations = transaction.transaction_allocations as unknown as Array<{ category_id: string; amount_cents: number; categories: { name: string; color: string } | null }>;
+    const allocations = transaction.transaction_allocations as unknown as Array<{ category_id: string; amount_cents: number; source: AllocationSource | null; categories: { name: string; color: string } | null }>;
     const category = allocations?.[0]?.categories;
     const account = transaction.accounts as unknown as { name: string } | null;
     return {
@@ -314,8 +358,10 @@ export async function getActivityData(limit = 100, monthValue?: string, options:
       isRecurring: Boolean(transaction.is_recurring),
       reviewStatus: transaction.excluded ? "reviewed" : transaction.review_status as "needs_review" | "reviewed",
       reviewedAt: transaction.reviewed_at as string | null,
+      updatedAt: transaction.updated_at as string,
+      allocationSource: allocations?.[0]?.source ?? null,
       allocations: (allocations ?? []).map((allocation) => ({ categoryId: allocation.category_id, category: allocation.categories?.name ?? "Unsorted", amountCents: Number(allocation.amount_cents) })),
-      auditHistory: (auditEvents ?? []).filter((event) => event.entity_id === transaction.id).map((event) => ({ id: event.id as string, action: String(event.action).replaceAll("_", " "), createdAt: event.created_at as string })),
+      auditHistory: (auditEvents ?? []).filter((event) => event.entity_id === transaction.id).map((event) => ({ id: event.id as string, action: String(event.action).replaceAll("_", " "), createdAt: event.created_at as string, undoable: Boolean((event.metadata as { before?: unknown } | null)?.before) && event.action !== "undone" })),
     };
   });
 }

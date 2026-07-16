@@ -7,12 +7,14 @@ const routes = [
   { path: "/budget", name: "budget", heading: "Budget" },
   { path: "/activity", name: "activity", heading: "Activity" },
   { path: "/plan", name: "plan", heading: "Plan" },
+  { path: "/income", name: "income", heading: "Income" },
   { path: "/settings", name: "settings", heading: "Settings" },
   { path: "/settings/diagnostics", name: "diagnostics", heading: "Reconciliation" },
 ] as const;
 
 test.describe("390px mobile visual QA", () => {
-  test.beforeEach(async ({ page }) => {
+  test.beforeEach(async ({ page }, testInfo) => {
+    test.skip(!["mobile-390", "mobile-430"].includes(testInfo.project.name), "Dedicated mobile workflow suite");
     await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   });
 
@@ -63,6 +65,22 @@ test.describe("390px mobile visual QA", () => {
     await expect(page.getByRole("dialog", { name: "Groceries category detail" }).getByText("No transactions in this month.")).toBeVisible();
   });
 
+  test("Budget and Plan link to reconciled monthly Income", async ({ page }, testInfo) => {
+    await page.goto("/budget");
+    await page.getByRole("link", { name: /Expected income/ }).click();
+    await expect(page).toHaveURL(/\/income\?month=2026-07/);
+    await expect(page.getByRole("heading", { level: 1, name: "Income" })).toBeVisible();
+    await expect(page.getByText("$6,850.00")).toBeVisible();
+    await expect(page.getByText(/\$3,425\.00 received/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Received" })).toBeVisible();
+    await expect(page.getByText("Payroll", { exact: true })).toBeVisible();
+    await expect(page.getByText("No unmatched deposits.")).toBeVisible();
+    await capture(page, testInfo, "income");
+    await page.goto("/plan");
+    await page.getByRole("link", { name: /Next income/ }).click();
+    await expect(page).toHaveURL(/\/income/);
+  });
+
   test("Home category rows open matching category detail", async ({ page }) => {
     await page.goto("/");
     await page.locator(".budget-stack").getByRole("button", { name: /Groceries/ }).click();
@@ -70,6 +88,23 @@ test.describe("390px mobile visual QA", () => {
     await expect(page.getByRole("dialog", { name: "Groceries category detail" }).getByText("Publix")).toBeVisible();
     await page.keyboard.press("Escape");
     await expect(page.getByRole("dialog", { name: "Groceries category detail" })).toBeHidden();
+  });
+
+  test("category detail move updates totals and Undo restores the row", async ({ page }) => {
+    await page.route("**/api/activity?transaction=t1", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ transactions: [{ ...demoPublixDetail(), updatedAt: "2026-07-15T12:00:00.000Z" }] }) }));
+    let revision = 0;
+    await page.route("**/api/transactions/t1", async (route) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ transaction: { updated_at: `2026-07-15T12:0${++revision}:00.000Z` } }) }));
+    await page.goto("/budget");
+    await page.getByRole("button", { name: /Groceries/ }).click();
+    const detail = page.getByRole("dialog", { name: "Groceries category detail" });
+    await detail.getByRole("button", { name: "Actions for Publix" }).click();
+    await page.getByRole("menuitem", { name: "Change category" }).click();
+    await page.getByRole("dialog", { name: "Choose category for Publix" }).getByRole("button", { name: /Dining/ }).click();
+    await expect(detail.getByRole("button", { name: /Publix, Groceries/ })).toBeHidden();
+    await expect(detail.getByText("$301.58", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect(detail.getByRole("button", { name: /Publix, Groceries/ })).toBeVisible();
+    await expect(detail.getByText("$388.00", { exact: true })).toBeVisible();
   });
 
   test("transaction detail sheet exposes the full review workflow", async ({ page }, testInfo) => {
@@ -81,6 +116,7 @@ test.describe("390px mobile visual QA", () => {
     await expect(detail.getByText("Mark reviewed")).toBeVisible();
     await detail.getByRole("button", { name: "Edit merchant name" }).click();
     await expect(detail.getByLabel("Merchant display name")).toHaveValue("Publix");
+    await detail.getByLabel("Merchant display name").fill("Publix Market");
     await detail.locator(".category-select-trigger").click();
     const picker = page.getByRole("dialog", { name: "Choose category for Publix" });
     await expect(picker.getByRole("button", { name: /Housing/ })).toBeVisible();
@@ -123,18 +159,21 @@ test.describe("390px mobile visual QA", () => {
 
     await page.goto("/activity");
     await expect(page.getByRole("heading", { level: 1, name: "Activity" })).toBeVisible();
+    await page.getByRole("button", { name: "All activity" }).click();
     const firstTransaction = page.locator(".activity-day-card .transaction-row").first();
     await expect(firstTransaction).toBeVisible();
     const activityBox = await firstTransaction.boundingBox();
     expect(activityBox?.y ?? 9999).toBeLessThan(520);
+    await page.goto("/budget");
+    const categoryRadius = await page.locator(".category-disc").first().evaluate((element) => getComputedStyle(element).borderRadius);
+    expect(categoryRadius).toBe("11px");
   });
 
-  test("Activity groups by day and review advances through Needs review", async ({ page }) => {
+  test("Activity Review mode advances to all caught up", async ({ page }) => {
     await mockTransactionUpdates(page);
     await page.goto("/activity");
     await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Yesterday" })).toBeVisible();
-    await page.getByRole("button", { name: "Needs review" }).click();
+    await expect(page.getByRole("button", { name: /Review 2/ })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: /Publix, Groceries/ }).click();
     await page.getByLabel("Mark reviewed").check();
     await page.getByRole("button", { name: "Save transaction" }).click();
@@ -142,7 +181,7 @@ test.describe("390px mobile visual QA", () => {
     await page.getByLabel("Mark reviewed").check();
     await page.getByRole("button", { name: "Save transaction" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
-    await expect(page.getByText("0 transactions need review")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "All caught up" })).toBeVisible();
   });
 
   test("Activity can review every visible transaction in a day at once", async ({ page }) => {
@@ -150,14 +189,14 @@ test.describe("390px mobile visual QA", () => {
     await page.goto("/activity");
     const today = page.locator(".activity-day-group").filter({ has: page.getByRole("heading", { name: "Today" }) });
     await today.getByRole("button", { name: "Review 1" }).click();
-    await expect(today.getByText("Reviewed", { exact: true }).first()).toBeVisible();
+    await expect(today).toBeHidden();
     await expect(page.getByRole("status")).toContainText("reviewed for the day");
   });
 
   test("transaction swipes and visible menu expose review and category actions", async ({ page }) => {
     await mockTransactionUpdates(page);
     await page.goto("/activity");
-    await page.getByRole("button", { name: "Needs review" }).click();
+    await expect(page.getByRole("button", { name: /Review 2/ })).toHaveAttribute("aria-pressed", "true");
     const publix = page.getByRole("button", { name: /Publix, Groceries/ });
     await swipe(page, publix, 92, 2);
     await expect(publix).toBeHidden();
@@ -185,14 +224,15 @@ test.describe("390px mobile visual QA", () => {
     await expect(actions).toBeFocused();
   });
 
-  test("transaction sheet scroll is safe and handle drag dismisses", async ({ page }) => {
+  test("transaction detail is full-screen and browser Back dismisses it", async ({ page }) => {
     await page.goto("/activity");
     await page.getByRole("button", { name: /Publix, Groceries/ }).click();
     const detail = page.getByRole("dialog", { name: /Publix transaction details/ });
     await page.locator(".transaction-sheet").evaluate((element) => { element.scrollTop = 180; });
     await expect(detail).toBeVisible();
-    await page.locator(".transaction-sheet").evaluate((element) => { element.scrollTop = 0; });
-    await swipe(page, page.getByRole("button", { name: "Drag down to close transaction details" }), 2, 140);
+    const box = await page.locator(".transaction-sheet").boundingBox();
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(840);
+    await page.goBack();
     await expect(detail).toBeHidden();
   });
 
@@ -258,4 +298,8 @@ async function swipe(page: Page, locator: Locator, deltaX: number, deltaY: numbe
   if (!box) throw new Error("Gesture target is not visible.");
   const startX = box.x + box.width / 2; const startY = box.y + Math.min(box.height / 2, 24);
   await page.mouse.move(startX, startY); await page.mouse.down(); await page.mouse.move(startX + deltaX, startY + deltaY, { steps: 8 }); await page.mouse.up();
+}
+
+function demoPublixDetail() {
+  return { id: "t1", merchant: "Publix", importedMerchant: "Publix", categoryId: "groceries", category: "Groceries", amountCents: -8642, date: "Today", isoDate: "2026-07-15T12:00:00.000Z", status: "posted", color: "#45D9E1", accountId: "demo-card", accountName: "Rewards card", rawDescription: "PUBLIX #1234", note: "", excluded: false, isTransfer: false, isRecurring: false, reviewStatus: "needs_review", reviewedAt: null, allocations: [{ categoryId: "groceries", category: "Groceries", amountCents: -8642 }], auditHistory: [] };
 }

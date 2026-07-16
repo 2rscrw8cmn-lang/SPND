@@ -9,8 +9,13 @@ export default defineConfig({
   workers: 1,
   reporter: [["list"], ["html", { outputFolder: "playwright-report", open: "never" }]],
   projects: [
+    { name: "responsive-320", use: { viewport: { width: 320, height: 700 } } },
+    { name: "responsive-375", use: { viewport: { width: 375, height: 812 } } },
     { name: "mobile-390", use: { viewport: { width: 390, height: 844 } } },
     { name: "mobile-430", use: { viewport: { width: 430, height: 932 } } },
+    { name: "responsive-768", use: { viewport: { width: 768, height: 1024 } } },
+    { name: "responsive-1024", use: { viewport: { width: 1024, height: 900 } } },
+    { name: "responsive-1440", use: { viewport: { width: 1440, height: 1000 } } },
   ],
   use: {
     baseURL: "http://127.0.0.1:3100",

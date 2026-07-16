@@ -12,7 +12,7 @@ const items = [
   { href: "/plan", label: "Plan", icon: CalendarDays },
 ];
 
-export function BottomNav() {
+export function BottomNav({ reviewCount = 0 }: { reviewCount?: number }) {
   const pathname = usePathname();
   return (
     <nav className="bottom-nav" aria-label="Primary navigation">
@@ -22,6 +22,7 @@ export function BottomNav() {
           return (
             <Link href={href} key={href} className={cn("nav-item", active && "nav-item-active")}>
               <Icon aria-hidden="true" size={23} strokeWidth={active ? 2.5 : 2} />
+              {label === "Activity" && reviewCount ? <span className="nav-review-badge" aria-label={`${reviewCount} transactions to review`}>{reviewCount > 99 ? "99+" : reviewCount}</span> : null}
               <span>{label}</span>
             </Link>
           );
@@ -34,4 +35,3 @@ export function BottomNav() {
     </nav>
   );
 }
-

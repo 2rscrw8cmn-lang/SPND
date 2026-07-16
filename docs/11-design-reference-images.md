@@ -29,6 +29,8 @@ These mocks are the primary implementation references for docs 14–17. They sup
 | --- | --- | --- |
 | [production-polish/review-category-move.jpg](assets/production-polish/review-category-move.jpg) | Review inbox, category detail, Move picker | Review is a primary mode; Activity and category detail share transaction rows; swipe right reviews; swipe left moves; long category detail is full-screen on phone |
 | [production-polish/home-budget-income.jpg](assets/production-polish/home-budget-income.jpg) | Home, monthly Budget, Income | Atmospheric gradients are meaningful and restrained; icons use curated gradient tiles; Budget exposes Income; expected and received income have a dedicated view |
+| [reference/review-category-move.png](assets/reference/review-category-move.png) | Review, category detail, Move | User-added approved inspiration retained alongside the production-polish mock |
+| [reference/home-budget-income.png](assets/reference/home-budget-income.png) | Home, Budget, Income | User-added approved inspiration for density, hierarchy, and semantic surfaces |
 
 The generated values and sample merchant marks are fictional presentation content. Implement the hierarchy and interaction contracts, not brand marks or pixel-perfect generated text.
 

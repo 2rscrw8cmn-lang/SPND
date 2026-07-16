@@ -4,6 +4,7 @@ import { subDays } from "date-fns";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret } from "@/lib/crypto";
 import { findPendingMatch, pendingMatchKey, reconcileAllocationAmounts, sourceFingerprint, type ImportedTransaction } from "@/lib/reconcile";
+import { shouldReopenAfterPendingChange } from "@/lib/remembered-rules";
 import { normalizeMerchant } from "@/lib/utils";
 import { buildSyncWindows, connectionNames, sanitizeProviderIssues, transactionDate, type SimpleFinResponse } from "@/lib/simplefin-core";
 
@@ -186,9 +187,12 @@ export async function syncConnection(connectionId: string, initial = false) {
           let { data: existingAllocation } = await admin.from("transaction_allocations").select("id").eq("transaction_id", savedTransaction.id).limit(1).maybeSingle();
           if (matchId) {
             const pendingSource = (existingPending ?? []).find((item) => item.id === matchId);
-            if (pendingSource) await admin.from("transactions").update({ display_name: pendingSource.display_name, note: pendingSource.note, excluded: pendingSource.excluded, is_transfer: pendingSource.is_transfer, is_recurring: pendingSource.is_recurring, review_status: pendingSource.review_status, reviewed_at: pendingSource.reviewed_at, reviewed_by: pendingSource.reviewed_by, updated_at: now.toISOString() }).eq("id", savedTransaction.id);
+            const { data: pendingAllocations } = await admin.from("transaction_allocations").select("category_id,amount_cents,source").eq("transaction_id", matchId);
+            if (pendingSource) {
+              const reopenReview = shouldReopenAfterPendingChange({ reviewed: pendingSource.review_status === "reviewed", pendingAmountCents: Number(pendingSource.amount_cents), postedAmountCents: transaction.amountCents, split: (pendingAllocations?.length ?? 0) > 1 });
+              await admin.from("transactions").update({ display_name: pendingSource.display_name, note: pendingSource.note, excluded: pendingSource.excluded, is_transfer: pendingSource.is_transfer, is_recurring: pendingSource.is_recurring, review_status: reopenReview ? "needs_review" : pendingSource.review_status, reviewed_at: reopenReview ? null : pendingSource.reviewed_at, reviewed_by: reopenReview ? null : pendingSource.reviewed_by, updated_at: now.toISOString() }).eq("id", savedTransaction.id);
+            }
             if (!existingAllocation) {
-              const { data: pendingAllocations } = await admin.from("transaction_allocations").select("category_id,amount_cents,source").eq("transaction_id", matchId);
               if (pendingAllocations?.length) {
                 const reconciledAllocations = reconcileAllocationAmounts(pendingAllocations.map((allocation) => ({ category_id: allocation.category_id, amountCents: Number(allocation.amount_cents), source: allocation.source })), transaction.amountCents);
                 await admin.from("transaction_allocations").insert(reconciledAllocations.map((allocation) => ({ household_id: connection.household_id, transaction_id: savedTransaction.id, category_id: allocation.category_id, amount_cents: allocation.amountCents, source: allocation.source })));
@@ -196,10 +200,10 @@ export async function syncConnection(connectionId: string, initial = false) {
               }
             }
           }
-          if (!existingAllocation && transaction.amountCents < 0) {
+          if (!existingAllocation) {
             let categoryId = ruleMap.get(normalized);
             let source: "merchant_rule" | "merchant_history" | "unsorted" = categoryId ? "merchant_rule" : "unsorted";
-            if (!categoryId) {
+            if (!categoryId && transaction.amountCents < 0) {
               const { data: priorTransactions } = await admin.from("transactions").select("id").eq("household_id", connection.household_id).eq("normalized_merchant", normalized).neq("id", savedTransaction.id).eq("status", "posted").order("transacted_at", { ascending: false }).limit(10);
               const priorIds = (priorTransactions ?? []).map((item) => item.id as string);
               if (priorIds.length) {
