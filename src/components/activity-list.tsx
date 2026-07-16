@@ -23,10 +23,11 @@ type ActivityListProps = {
   categories: BudgetCategory[];
   accounts: Account[];
   initialCategoryId?: string;
+  initialReviewCount?: number;
   selectedMonth?: string;
 };
 
-export function ActivityList({ initialTransactions, categories, accounts, initialCategoryId, selectedMonth }: ActivityListProps) {
+export function ActivityList({ initialTransactions, categories, accounts, initialCategoryId, initialReviewCount, selectedMonth }: ActivityListProps) {
   const [transactions, setTransactions] = useState(initialTransactions);
   const [mode, setMode] = useState<ActivityMode>(initialCategoryId ? "all" : initialTransactions.some((transaction) => transaction.reviewStatus === "needs_review" && !transaction.excluded && !transaction.isTransfer) ? "review" : "all");
   const [query, setQuery] = useState("");
@@ -63,7 +64,8 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
   const recentCategoryIds = useMemo(() => [...new Set(transactions.filter((transaction) => transaction.categoryId && transaction.reviewStatus === "reviewed").map((transaction) => transaction.categoryId))].slice(0, 4), [transactions]);
   const groups = useMemo(() => groupTransactionsByDay(filtered), [filtered]);
   const duplicateGroups = useMemo(() => findPotentialDuplicates(transactions), [transactions]);
-  const reviewCount = transactions.filter((transaction) => transaction.reviewStatus === "needs_review" && !transaction.excluded && !transaction.isTransfer).length;
+  const [reviewTotal, setReviewTotal] = useState(() => Math.max(initialReviewCount ?? 0, initialTransactions.filter((transaction) => transaction.reviewStatus === "needs_review" && !transaction.excluded && !transaction.isTransfer).length));
+  const adjustReviewTotal = useCallback((delta: number) => setReviewTotal((total) => Math.max(0, total + delta)), []);
 
   const fetchPage = useCallback(async (append: boolean) => {
     setLoadingPage(true); const params = new URLSearchParams();
@@ -87,6 +89,7 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
       return false;
     }
     if (body.transaction?.updated_at) setTransactions((items) => items.map((item) => item.id === transaction.id ? { ...item, updatedAt: body.transaction!.updated_at! } : item));
+    adjustReviewTotal(reviewed ? -1 : 1);
     return true;
   }
 
@@ -144,13 +147,16 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
     if (!response.ok) {
       setTransactions((items) => items.map((item) => item.id === transaction.id ? original : item));
       setToast({ message: "Category could not be saved. The previous category was restored." });
-    } else if (body.transaction?.updated_at) {
-      setTransactions((items) => items.map((item) => item.id === transaction.id ? { ...item, updatedAt: body.transaction!.updated_at! } : item));
+    } else {
+      if (categorizeAndReview) adjustReviewTotal(-1);
+      if (body.transaction?.updated_at) setTransactions((items) => items.map((item) => item.id === transaction.id ? { ...item, updatedAt: body.transaction!.updated_at! } : item));
     }
   }
 
   function detailUpdated(updated: ActivityTransaction) {
     const normalized = updated.excluded ? { ...updated, reviewStatus: "reviewed" as const, reviewedAt: updated.reviewedAt ?? new Date().toISOString() } : updated;
+    const previous = transactions.find((item) => item.id === updated.id);
+    if (previous && previous.reviewStatus !== normalized.reviewStatus) adjustReviewTotal(normalized.reviewStatus === "reviewed" ? -1 : 1);
     const currentIndex = filtered.findIndex((item) => item.id === updated.id);
     const shouldAdvance = mode === "review" && normalized.reviewStatus === "reviewed";
     setTransactions((items) => items.map((item) => item.id === normalized.id ? normalized : item));
@@ -162,7 +168,7 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
 
   return <>
     {selectedMonth ? <div className="activity-month-context"><span>Showing {format(parseISO(`${selectedMonth.slice(0, 7)}-01`), "MMMM yyyy")}</span><Link href="/activity">All activity</Link></div> : null}
-    <div className="mode-switcher activity-mode-switcher" role="group" aria-label="Activity mode"><button aria-pressed={mode === "review"} onClick={() => setMode("review")}>Review {reviewCount}</button><button aria-pressed={mode === "all"} onClick={() => setMode("all")}>All activity</button></div>
+    <div className="mode-switcher activity-mode-switcher" role="group" aria-label="Activity mode"><button aria-pressed={mode === "review"} onClick={() => setMode("review")}>Review {reviewTotal > 99 ? "99+" : reviewTotal}</button><button aria-pressed={mode === "all"} onClick={() => setMode("all")}>All activity</button></div>
     {mode === "review" ? <p className="review-mode-help">Confirm categories and transaction details.</p> : <><div className="activity-search field"><label htmlFor="activity-search" className="sr-only">Search activity</label><Search size={19} /><input id="activity-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search merchants or descriptions" /></div>
     <div className="chip-row" aria-label="Activity filters">{(["all", "pending", "expenses", "income", "excluded", "transfers"] as const).map((item) => <button key={item} className={`chip ${filter === item ? "chip-active" : ""}`} onClick={() => setFilter(item)}>{item.slice(0, 1).toUpperCase() + item.slice(1)}</button>)}</div></>}
     {mode === "all" ?

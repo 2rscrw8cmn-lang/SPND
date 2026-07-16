@@ -40,6 +40,8 @@ jobs:
       - run: npm ci
       - run: supabase start
       - name: Export disposable-stack credentials
-        run: supabase status -o env >> "$GITHUB_ENV"
+        # `supabase status -o env` emits KEY="value" lines; GITHUB_ENV takes values
+        # literally, so the quotes must be stripped or they become part of the value.
+        run: supabase status -o env | sed -E 's/^([A-Za-z0-9_]+)="(.*)"$/\1=\2/' >> "$GITHUB_ENV"
       - name: Run isolated RLS and accounting workflow tests
         run: RUN_SUPABASE_INTEGRATION=true NEXT_PUBLIC_SUPABASE_URL="$API_URL" NEXT_PUBLIC_SUPABASE_ANON_KEY="$ANON_KEY" SUPABASE_SERVICE_ROLE_KEY="$SERVICE_ROLE_KEY" npm run test:integration
