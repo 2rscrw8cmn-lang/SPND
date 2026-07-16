@@ -9,7 +9,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
-  Pencil,
+  Layers3,
   Plus,
   RotateCcw,
   Save,
@@ -20,10 +20,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { CategoryDetail } from "@/components/category-detail";
 import { BudgetRow } from "@/components/budget-row";
+import { CategoryGroupSettings } from "@/components/category-group-settings";
 import { CategoryIcon, categoryIcons } from "@/components/icons";
 import { sortBudgetCategories } from "@/lib/budget-sort";
 import {
@@ -31,7 +32,11 @@ import {
   categoryVisualStyle,
   type CategoryPaletteKey,
 } from "@/lib/category-style";
-import type { BudgetCategory, BudgetWorkspace as Workspace } from "@/lib/data";
+import type {
+  BudgetCategory,
+  BudgetWorkspace as Workspace,
+  CategoryGroup,
+} from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 
 const colors: Array<{ color: string; paletteKey: CategoryPaletteKey }> = [
@@ -56,6 +61,12 @@ export function BudgetWorkspace({
 }) {
   const router = useRouter();
   const [categories, setCategories] = useState(initialWorkspace.categories);
+  const [groupRecords, setGroupRecords] = useState(
+    initialWorkspace.categoryGroups,
+  );
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(
+    new Set(),
+  );
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editingBudget, setEditingBudget] = useState(false);
   const [message, setMessage] = useState("");
@@ -68,20 +79,33 @@ export function BudgetWorkspace({
     (category) =>
       category.isActive && category.showInBudget && !category.isExcluded,
   );
-  const categoryGroups = [...initialWorkspace.categoryGroups]
+  const categoryGroups = [...groupRecords]
     .sort((a, b) => a.sortOrder - b.sortOrder)
     .map((group) => group.name);
   const budgetGroups = categoryGroups.filter(
     (group) => group !== "Excluded" && group !== "Income",
   );
-  const totals = useMemo(
-    () => ({
-      budgeted: visible.reduce((sum, item) => sum + item.budgetedCents, 0),
-      spent: visible.reduce((sum, item) => sum + item.spentCents, 0),
-      pending: visible.reduce((sum, item) => sum + item.pendingCents, 0),
+  const groupedVisible = [...groupRecords]
+    .sort((a, b) => a.sortOrder - b.sortOrder)
+    .map((group) => ({
+      group,
+      categories: sortBudgetCategories(
+        visible.filter((category) => category.categoryGroup === group.name),
+      ),
+    }))
+    .filter((entry) => entry.categories.length > 0);
+  const categoryCounts = categories.reduce<Record<string, number>>(
+    (counts, category) => ({
+      ...counts,
+      [category.categoryGroup]: (counts[category.categoryGroup] ?? 0) + 1,
     }),
-    [visible],
+    {},
   );
+  const totals = {
+    budgeted: visible.reduce((sum, item) => sum + item.budgetedCents, 0),
+    spent: visible.reduce((sum, item) => sum + item.spentCents, 0),
+    pending: visible.reduce((sum, item) => sum + item.pendingCents, 0),
+  };
   const expectedIncomeCents = initialWorkspace.totals.expectedIncomeCents;
   const incomeBasisCents =
     expectedIncomeCents > 0
@@ -248,13 +272,15 @@ export function BudgetWorkspace({
           <p className="page-subtitle">Plan the month together.</p>
         </div>
         <button
-          className="secondary-button compact-button"
+          className="icon-button budget-edit-trigger"
+          aria-label="Edit budget"
+          title="Edit budget"
           onClick={() => {
             setSelectedId(null);
             setEditingBudget(true);
           }}
         >
-          <SlidersHorizontal size={16} /> Edit budget
+          <SlidersHorizontal size={19} />
         </button>
       </header>
       <nav className="month-rail" aria-label="Budget month">
@@ -381,30 +407,94 @@ export function BudgetWorkspace({
         <div className="section-line budget-category-heading">
           <h2>Budget categories</h2>
           <span>{visible.length}</span>
-          <button
-            className="icon-button"
-            aria-label="Add category"
-            onClick={() => setAddingCategory(true)}
-          >
-            <Plus size={18} />
-          </button>
         </div>
-        <div className="budget-list card">
-          {visible.length ? (
-            sortBudgetCategories(visible).map((category) => (
-              <BudgetRow
-                category={category}
-                key={category.id}
-                onSelect={() => {
-                  setSelectedId(category.id);
-                  setMessage("");
-                }}
-              />
-            ))
-          ) : (
+        {groupedVisible.length ? (
+          <div className="budget-group-stack">
+            {groupedVisible.map(({ group, categories: groupCategories }) => {
+              const collapsed = collapsedGroups.has(group.id);
+              const budgeted = groupCategories.reduce(
+                (sum, item) => sum + item.budgetedCents,
+                0,
+              );
+              const used = groupCategories.reduce(
+                (sum, item) => sum + item.spentCents + item.pendingCents,
+                0,
+              );
+              return (
+                <section
+                  className={`budget-category-group card ${collapsed ? "collapsed" : ""}`}
+                  key={group.id}
+                >
+                  <button
+                    className="budget-group-summary"
+                    aria-expanded={!collapsed}
+                    onClick={() =>
+                      setCollapsedGroups((current) => {
+                        const next = new Set(current);
+                        if (next.has(group.id)) next.delete(group.id);
+                        else next.add(group.id);
+                        return next;
+                      })
+                    }
+                  >
+                    <span className="budget-group-icon">
+                      <Layers3 size={17} />
+                    </span>
+                    <span className="budget-group-copy">
+                      <span className="budget-group-topline">
+                        <span className="budget-group-title">
+                          <strong>{group.name}</strong>
+                          <small>
+                            {groupCategories.length} categor
+                            {groupCategories.length === 1 ? "y" : "ies"}
+                          </small>
+                        </span>
+                        <span className="budget-group-amount">
+                          <strong>
+                            {formatCurrency(used, { compact: true })} of{" "}
+                            {formatCurrency(budgeted, { compact: true })}
+                          </strong>
+                          <small>
+                            {formatCurrency(Math.max(0, budgeted - used), {
+                              compact: true,
+                            })}{" "}
+                            left
+                          </small>
+                        </span>
+                      </span>
+                      <span className="budget-group-progress">
+                        <i
+                          style={{
+                            width: `${Math.min(100, (used / Math.max(1, budgeted)) * 100)}%`,
+                          }}
+                        />
+                      </span>
+                    </span>
+                    <ChevronDown className="budget-group-chevron" size={17} />
+                  </button>
+                  {!collapsed ? (
+                    <div className="budget-list">
+                      {groupCategories.map((category) => (
+                        <BudgetRow
+                          category={category}
+                          key={category.id}
+                          onSelect={() => {
+                            setSelectedId(category.id);
+                            setMessage("");
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ) : null}
+                </section>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="budget-list card">
             <p className="compact-empty">No budget categories yet.</p>
-          )}
-        </div>
+          </div>
+        )}
       </section>
       {excluded.length ? (
         <details className="archived-categories">
@@ -426,65 +516,85 @@ export function BudgetWorkspace({
           ))}
         </details>
       ) : null}
-      <details className="budget-setup card">
-        <summary>
-          <span className="budget-setup-icon">
-            <Sparkles size={17} />
-          </span>
-          <span>
-            <strong>Month setup</strong>
-            <small>Copy or save a reusable monthly plan</small>
-          </span>
-          <ChevronDown size={17} />
-        </summary>
-        <div className="budget-setup-actions">
-          <button
-            onClick={() => setupMonth("copy_previous")}
-            disabled={!initialWorkspace.monthSetup.previousCategoryCount}
-          >
-            <Copy size={16} />
-            <span>
-              <strong>Copy previous month</strong>
-              <small>
-                {initialWorkspace.monthSetup.previousCategoryCount
-                  ? `${initialWorkspace.monthSetup.previousCategoryCount} categories`
-                  : "Nothing to copy"}
-              </small>
+      {false ? (
+        <details className="budget-setup card">
+          <summary>
+            <span className="budget-setup-icon">
+              <Sparkles size={17} />
             </span>
-          </button>
-          <button
-            onClick={() => setupMonth("apply_template")}
-            disabled={!initialWorkspace.monthSetup.templateCategoryCount}
-          >
-            <Copy size={16} />
             <span>
-              <strong>Apply template</strong>
-              <small>
-                {initialWorkspace.monthSetup.templateCategoryCount
-                  ? `${initialWorkspace.monthSetup.templateCategoryCount} categories`
-                  : "No template saved"}
-              </small>
+              <strong>Month setup</strong>
+              <small>Copy or save a reusable monthly plan</small>
             </span>
-          </button>
-          <button
-            onClick={() => setupMonth("save_template")}
-            disabled={!totals.budgeted}
-          >
-            <Save size={16} />
-            <span>
-              <strong>Save as template</strong>
-              <small>Reuse this month’s assigned amounts</small>
-            </span>
-          </button>
-        </div>
-      </details>
+            <ChevronDown size={17} />
+          </summary>
+          <div className="budget-setup-actions">
+            <button
+              onClick={() => setupMonth("copy_previous")}
+              disabled={!initialWorkspace.monthSetup.previousCategoryCount}
+            >
+              <Copy size={16} />
+              <span>
+                <strong>Copy previous month</strong>
+                <small>
+                  {initialWorkspace.monthSetup.previousCategoryCount
+                    ? `${initialWorkspace.monthSetup.previousCategoryCount} categories`
+                    : "Nothing to copy"}
+                </small>
+              </span>
+            </button>
+            <button
+              onClick={() => setupMonth("apply_template")}
+              disabled={!initialWorkspace.monthSetup.templateCategoryCount}
+            >
+              <Copy size={16} />
+              <span>
+                <strong>Apply template</strong>
+                <small>
+                  {initialWorkspace.monthSetup.templateCategoryCount
+                    ? `${initialWorkspace.monthSetup.templateCategoryCount} categories`
+                    : "No template saved"}
+                </small>
+              </span>
+            </button>
+            <button
+              onClick={() => setupMonth("save_template")}
+              disabled={!totals.budgeted}
+            >
+              <Save size={16} />
+              <span>
+                <strong>Save as template</strong>
+                <small>Reuse this month’s assigned amounts</small>
+              </span>
+            </button>
+          </div>
+        </details>
+      ) : null}
       {editingBudget ? (
         <BudgetEditor
           categories={visible}
+          categoryCounts={categoryCounts}
+          groups={groupRecords}
           incomeCents={incomeBasisCents}
           month={initialWorkspace.month}
+          monthSetup={initialWorkspace.monthSetup}
+          onAddCategory={() => {
+            setEditingBudget(false);
+            setAddingCategory(true);
+          }}
           onClose={() => setEditingBudget(false)}
+          onGroupsChange={setGroupRecords}
+          onRenameGroup={(from, to) =>
+            setCategories((items) =>
+              items.map((item) =>
+                item.categoryGroup === from
+                  ? { ...item, categoryGroup: to }
+                  : item,
+              ),
+            )
+          }
           onSave={saveMonthlyBudgets}
+          onSetupMonth={setupMonth}
         />
       ) : null}
       {addingCategory ? (
@@ -598,28 +708,57 @@ export function BudgetWorkspace({
 
 function BudgetEditor({
   categories,
+  categoryCounts,
+  groups,
   incomeCents,
   month,
+  monthSetup,
+  onAddCategory,
   onClose,
+  onGroupsChange,
+  onRenameGroup,
   onSave,
+  onSetupMonth,
 }: {
   categories: BudgetCategory[];
+  categoryCounts: Record<string, number>;
+  groups: CategoryGroup[];
   incomeCents: number;
   month: string;
+  monthSetup: Workspace["monthSetup"];
+  onAddCategory: () => void;
   onClose: () => void;
+  onGroupsChange: (groups: CategoryGroup[]) => void;
+  onRenameGroup: (from: string, to: string) => void;
   onSave: (values: Record<string, number>) => Promise<boolean>;
+  onSetupMonth: (
+    action: "copy_previous" | "save_template" | "apply_template",
+  ) => Promise<void>;
 }) {
   const [drafts, setDrafts] = useState<Record<string, number>>(() =>
     Object.fromEntries(
       categories.map((category) => [category.id, category.budgetedCents]),
     ),
   );
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [saveMessage, setSaveMessage] = useState("");
   const [saving, setSaving] = useState(false);
   const assigned = categories.reduce(
     (sum, category) => sum + (drafts[category.id] ?? 0),
     0,
   );
   const available = incomeCents - assigned;
+
+  async function commitBudget(categoryId: string) {
+    const category = categories.find((item) => item.id === categoryId);
+    if (!category || drafts[categoryId] === category.budgetedCents) return;
+    setSavingId(categoryId);
+    const saved = await onSave({ [categoryId]: drafts[categoryId] ?? 0 });
+    setSaveMessage(
+      saved ? `${category.name} saved` : `${category.name} could not be saved`,
+    );
+    setSavingId(null);
+  }
 
   return (
     <BottomSheet
@@ -657,6 +796,52 @@ function BudgetEditor({
           </dd>
         </div>
       </dl>
+      <div className="budget-editor-tools" aria-label="Budget tools">
+        <button type="button" onClick={onAddCategory}>
+          <Plus size={18} />
+          <span>
+            <strong>Add category</strong>
+            <small>Create it in a budget group</small>
+          </span>
+        </button>
+        <details>
+          <summary>
+            <Sparkles size={18} />
+            <span>
+              <strong>Month setup</strong>
+              <small>Copy or save this plan</small>
+            </span>
+            <ChevronDown size={17} />
+          </summary>
+          <div className="budget-editor-tool-actions">
+            <button
+              type="button"
+              disabled={!monthSetup.previousCategoryCount}
+              onClick={() => void onSetupMonth("copy_previous")}
+            >
+              <Copy size={16} /> Copy previous month
+            </button>
+            <button
+              type="button"
+              disabled={!monthSetup.templateCategoryCount}
+              onClick={() => void onSetupMonth("apply_template")}
+            >
+              <Copy size={16} /> Apply template
+            </button>
+            <button
+              type="button"
+              disabled={!assigned}
+              onClick={() => void onSetupMonth("save_template")}
+            >
+              <Save size={16} /> Save as template
+            </button>
+          </div>
+        </details>
+      </div>
+      <div className="budget-editor-section-heading">
+        <span>Monthly amounts</span>
+        <small>Changes save when you leave a field</small>
+      </div>
       <div className="budget-editor-list">
         {sortBudgetCategories(categories).map((category) => (
           <label className="budget-editor-row" key={category.id}>
@@ -675,21 +860,27 @@ function BudgetEditor({
               <input
                 aria-label={`${category.name} monthly budget`}
                 inputMode="decimal"
-                type="number"
-                min="0"
-                step="0.01"
+                type="text"
+                pattern="[0-9]*[.,]?[0-9]*"
                 placeholder="0"
                 value={drafts[category.id] ? drafts[category.id]! / 100 : ""}
+                onBlur={() => void commitBudget(category.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
                 onChange={(event) =>
                   setDrafts({
                     ...drafts,
                     [category.id]: Math.max(
                       0,
-                      Math.round(Number(event.target.value) * 100),
+                      Math.round(
+                        Number(event.target.value.replace(",", ".")) * 100,
+                      ) || 0,
                     ),
                   })
                 }
               />
+              {savingId === category.id ? <i aria-hidden="true" /> : null}
             </span>
           </label>
         ))}
@@ -707,6 +898,15 @@ function BudgetEditor({
           <Check size={18} /> {saving ? "Saving…" : "Save monthly budget"}
         </button>
       </div>
+      <p className="budget-autosave-status" role="status">
+        {saveMessage}
+      </p>
+      <CategoryGroupSettings
+        initialGroups={groups}
+        categoryCounts={categoryCounts}
+        onGroupsChange={onGroupsChange}
+        onRename={onRenameGroup}
+      />
     </BottomSheet>
   );
 }
@@ -732,9 +932,28 @@ function CategoryPanel({
   onSaveCategory: (value: BudgetCategory) => Promise<boolean>;
   onSaveBudget: (id: string, cents: number) => Promise<boolean>;
 }) {
-  const [mode, setMode] = useState<"view" | "edit">("view");
+  const [mode, setMode] = useState<"view" | "edit" | "icons">("view");
   const [draft, setDraft] = useState(category);
   const [savingSettings, setSavingSettings] = useState(false);
+  const [saveStatus, setSaveStatus] = useState("");
+
+  async function commitCategory(next: BudgetCategory) {
+    setDraft(next);
+    setSavingSettings(true);
+    setSaveStatus("Saving…");
+    const saved = await onSaveCategory(next);
+    setSavingSettings(false);
+    setSaveStatus(saved ? "Saved" : "Could not save");
+  }
+
+  async function commitBudget() {
+    if (draft.budgetedCents === category.budgetedCents) return;
+    setSavingSettings(true);
+    setSaveStatus("Saving…");
+    const saved = await onSaveBudget(category.id, draft.budgetedCents);
+    setSavingSettings(false);
+    setSaveStatus(saved ? "Saved" : "Could not save");
+  }
   return (
     <CategoryDetail
       actions={
@@ -744,19 +963,177 @@ function CategoryPanel({
           </button>
           <button
             className="category-action-button edit"
-            onClick={() => setMode(mode === "edit" ? "view" : "edit")}
+            onClick={() =>
+              void commitCategory({ ...draft, isActive: !draft.isActive })
+            }
           >
-            <Pencil size={17} />{" "}
-            {mode === "edit" ? "Close editor" : "Edit budget"}
+            {draft.isActive ? <Archive size={17} /> : <RotateCcw size={17} />}
+            {draft.isActive ? "Hide category" : "Restore category"}
           </button>
         </>
       }
       allCategories={allCategories}
+      budget={
+        <span className="category-inline-money">
+          <span>$</span>
+          <input
+            aria-label={`${draft.name} monthly budget`}
+            inputMode="decimal"
+            type="text"
+            pattern="[0-9]*[.,]?[0-9]*"
+            value={draft.budgetedCents ? draft.budgetedCents / 100 : ""}
+            placeholder="0"
+            onChange={(event) =>
+              setDraft({
+                ...draft,
+                budgetedCents: Math.max(
+                  0,
+                  Math.round(
+                    Number(event.target.value.replace(",", ".")) * 100,
+                  ) || 0,
+                ),
+              })
+            }
+            onBlur={() => void commitBudget()}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") event.currentTarget.blur();
+            }}
+          />
+        </span>
+      }
       category={category}
+      icon={
+        <button
+          className="category-disc category-inline-icon"
+          aria-label="Change category icon"
+          aria-expanded={mode === "icons"}
+          style={categoryVisualStyle(draft) as React.CSSProperties}
+          onClick={() => setMode(mode === "icons" ? "view" : "icons")}
+        >
+          <CategoryIcon name={draft.icon} />
+        </button>
+      }
       message={message}
       month={month}
       onClose={onClose}
+      title={
+        <input
+          className="category-inline-name"
+          aria-label="Category name"
+          value={draft.name}
+          onChange={(event) => setDraft({ ...draft, name: event.target.value })}
+          onBlur={() => {
+            const name = draft.name.trim();
+            if (name && name !== category.name)
+              void commitCategory({ ...draft, name });
+          }}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") event.currentTarget.blur();
+          }}
+        />
+      }
     >
+      <div className="category-quick-editor" aria-label="Category details">
+        {mode === "icons" ? (
+          <div className="category-inline-picker">
+            <div className="icon-picker">
+              {Object.keys(categoryIcons).map((icon) => (
+                <button
+                  type="button"
+                  aria-label={icon}
+                  aria-pressed={draft.icon === icon}
+                  className={draft.icon === icon ? "selected" : ""}
+                  key={icon}
+                  onClick={() => {
+                    setMode("view");
+                    void commitCategory({ ...draft, icon });
+                  }}
+                >
+                  <CategoryIcon name={icon} />
+                </button>
+              ))}
+            </div>
+            <div className="color-picker">
+              {colors.map((option) => (
+                <button
+                  type="button"
+                  aria-label={option.paletteKey}
+                  aria-pressed={draft.paletteKey === option.paletteKey}
+                  className={
+                    draft.paletteKey === option.paletteKey ? "selected" : ""
+                  }
+                  style={{
+                    background: `linear-gradient(145deg, ${categoryPalettes[option.paletteKey][0]}, ${categoryPalettes[option.paletteKey][1]})`,
+                  }}
+                  key={option.paletteKey}
+                  onClick={() =>
+                    void commitCategory({
+                      ...draft,
+                      color: option.color,
+                      paletteKey: option.paletteKey,
+                    })
+                  }
+                />
+              ))}
+            </div>
+          </div>
+        ) : null}
+        <div className="category-chip-editor">
+          <span>Group</span>
+          <div>
+            {categoryGroups
+              .filter((group) => group !== "Income" && group !== "Excluded")
+              .map((group) => (
+                <button
+                  type="button"
+                  aria-pressed={draft.categoryGroup === group}
+                  className={draft.categoryGroup === group ? "selected" : ""}
+                  key={group}
+                  onClick={() =>
+                    void commitCategory({
+                      ...draft,
+                      categoryGroup: group,
+                      isExcluded: false,
+                      showInBudget: true,
+                    })
+                  }
+                >
+                  {group}
+                </button>
+              ))}
+          </div>
+        </div>
+        <div className="category-chip-editor">
+          <span>Type</span>
+          <div>
+            {(["spending", "obligation", "goal"] as const).map(
+              (behaviorType) => (
+                <button
+                  type="button"
+                  aria-pressed={draft.behaviorType === behaviorType}
+                  className={
+                    draft.behaviorType === behaviorType ? "selected" : ""
+                  }
+                  key={behaviorType}
+                  onClick={() =>
+                    void commitCategory({
+                      ...draft,
+                      behaviorType,
+                      isExcluded: false,
+                      showInBudget: true,
+                    })
+                  }
+                >
+                  {behaviorType}
+                </button>
+              ),
+            )}
+          </div>
+        </div>
+        <p className="category-autosave-status" role="status">
+          {savingSettings ? "Saving…" : saveStatus}
+        </p>
+      </div>
       {mode === "edit" ? (
         <div className="inline-editor">
           <h3>Edit monthly budget</h3>

@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft } from "lucide-react";
+import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { useState } from "react";
 import { BottomSheet } from "@/components/bottom-sheet";
@@ -16,17 +16,23 @@ export function CategoryDetail({
   allCategories,
   category,
   children,
+  icon,
   message,
   month,
   onClose,
+  title,
+  budget,
 }: {
   actions?: ReactNode;
   allCategories: BudgetCategory[];
   category: BudgetCategory;
   children?: ReactNode;
+  icon?: ReactNode;
   message?: string;
   month?: string;
   onClose: () => void;
+  title?: ReactNode;
+  budget?: ReactNode;
 }) {
   const [detail, setDetail] = useState<ActivityTransaction | null>(null);
   const [spentDelta, setSpentDelta] = useState(0);
@@ -54,7 +60,7 @@ export function CategoryDetail({
         className="category-sheet category-detail-sheet"
         label={`${category.name} category detail`}
         onClose={onClose}
-        handleLabel="Back to categories"
+        handleLabel="Swipe down to close category"
       >
         <div
           className="category-detail-hero"
@@ -64,22 +70,24 @@ export function CategoryDetail({
             <button
               className="icon-button"
               onClick={onClose}
-              aria-label="Back to categories"
+              aria-label="Close category"
             >
-              <ArrowLeft />
+              <X />
             </button>
-            <strong>{category.name}</strong>
+            <strong>Category</strong>
             <span />
           </div>
           <div className="category-detail-title">
-            <span className="category-disc">
-              <CategoryIcon name={category.icon} />
-            </span>
+            {icon ?? (
+              <span className="category-disc">
+                <CategoryIcon name={category.icon} />
+              </span>
+            )}
             <div>
               <p className={`eyebrow ${available < 0 ? "negative" : ""}`}>
                 {status}
               </p>
-              <h2>{category.name}</h2>
+              {title ?? <h2>{category.name}</h2>}
             </div>
           </div>
           <div className="category-detail-progress">
@@ -92,7 +100,7 @@ export function CategoryDetail({
           <dl className="category-metrics">
             <div>
               <dt>Budget</dt>
-              <dd>{formatCurrency(category.budgetedCents)}</dd>
+              <dd>{budget ?? formatCurrency(category.budgetedCents)}</dd>
             </div>
             <div>
               <dt>Spent</dt>

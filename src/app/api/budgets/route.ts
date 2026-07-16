@@ -4,6 +4,7 @@ import { z } from "zod";
 import { authenticatedHousehold } from "@/lib/server-auth";
 import { createClient } from "@/lib/supabase/server";
 import { normalizeBudgetMonth } from "@/lib/data";
+import { isDemoMode } from "@/lib/env";
 
 const schema = z.union([
   z.object({ categoryId: z.string().uuid(), budgetedCents: z.number().int().min(0).max(100_000_000), month: z.string().regex(/^\d{4}-\d{2}(?:-01)?$/).optional() }),
@@ -13,9 +14,14 @@ const schema = z.union([
 ]);
 
 export async function POST(request: Request) {
+  const requestBody = await request.json();
+  if (isDemoMode) {
+    const action = typeof requestBody === "object" && requestBody && "action" in requestBody ? String(requestBody.action) : "";
+    return NextResponse.json({ message: action === "save_template" ? "Demo template saved for this session." : action ? "Demo month setup applied for this session." : "Monthly budget updated." });
+  }
   const auth = await authenticatedHousehold();
   if (!auth) return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
-  const body = schema.safeParse(await request.json());
+  const body = schema.safeParse(requestBody);
   if (!body.success) return NextResponse.json({ message: "Enter a valid monthly amount." }, { status: 400 });
   const supabase = await createClient();
   const month = format(normalizeBudgetMonth(body.data.month), "yyyy-MM-dd");

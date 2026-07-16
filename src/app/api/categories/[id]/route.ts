@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authenticatedHousehold } from "@/lib/server-auth";
 import { createClient } from "@/lib/supabase/server";
+import { isDemoMode } from "@/lib/env";
 
 const schema = z.object({
   name: z.string().trim().min(1).max(60),
@@ -25,18 +26,22 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  const auth = await authenticatedHousehold();
-  if (!auth)
-    return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
-  const { id } = await params;
-  if (!z.string().uuid().safeParse(id).success)
-    return NextResponse.json({ message: "Invalid category." }, { status: 400 });
   const body = schema.safeParse(await request.json());
   if (!body.success)
     return NextResponse.json(
       { message: "Check the category settings." },
       { status: 400 },
     );
+  if (isDemoMode)
+    return NextResponse.json({
+      message: body.data.isActive ? "Demo category saved for this session." : "Demo category archived for this session.",
+    });
+  const auth = await authenticatedHousehold();
+  if (!auth)
+    return NextResponse.json({ message: "Unauthorized." }, { status: 401 });
+  const { id } = await params;
+  if (!z.string().uuid().safeParse(id).success)
+    return NextResponse.json({ message: "Invalid category." }, { status: 400 });
   const supabase = await createClient();
   const { data: existing } = await supabase
     .from("categories")

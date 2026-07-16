@@ -38,22 +38,26 @@ test.describe("390px mobile visual QA", () => {
     await groceriesBudget.fill("");
     await groceriesBudget.pressSequentially("125");
     await expect(groceriesBudget).toHaveValue("125");
-    await expect(budgetEditor.getByRole("button", { name: "Save monthly budget" })).toBeVisible();
+    await groceriesBudget.blur();
+    await expect(budgetEditor.getByRole("status")).toContainText("Groceries saved");
+    await expect(budgetEditor.getByRole("button", { name: /Add category/ })).toBeVisible();
+    await expect(budgetEditor.getByText("Month setup")).toBeVisible();
     await capture(page, testInfo, "budget-editor");
     await swipe(page, budgetEditor.getByRole("button", { name: "Drag down to close monthly budget editor" }), 2, 140);
     await expect(budgetEditor).toBeHidden();
-    await expect(page.getByRole("button", { name: "Add category" })).toBeVisible();
-    await page.getByRole("button", { name: /Groceries/ }).click();
+    await page.locator(".budget-group").getByRole("button", { name: /Groceries/ }).click();
     const detail = page.getByRole("dialog", { name: "Groceries category detail" });
     await expect(detail).toBeVisible();
     await expect(detail.getByText("Recent transactions")).toBeVisible();
     await expect(detail.getByText("Publix")).toBeVisible();
     await expect(detail.getByRole("button", { name: "Move money" })).toBeVisible();
-    await expect(detail.getByText("Category settings", { exact: true })).toBeVisible();
+    await expect(detail.getByLabel("Category name")).toHaveValue("Groceries");
+    await expect(detail.getByRole("button", { name: "Change category icon" })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Essentials" })).toHaveAttribute("aria-pressed", "true");
     await expectNoHorizontalOverflow(page);
     await capture(page, testInfo, "budget-category-sheet");
     await page.locator(".category-sheet").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(detail.getByText("Category settings", { exact: true })).toBeVisible();
+    await expect(detail.getByLabel("Groceries monthly budget")).toBeVisible();
     await capture(page, testInfo, "budget-category-sheet-actions");
   });
 
@@ -63,6 +67,22 @@ test.describe("390px mobile visual QA", () => {
     await expect(page.getByRole("navigation", { name: "Budget month" })).toContainText("Aug 2026");
     await page.getByRole("button", { name: /Groceries/ }).click();
     await expect(page.getByRole("dialog", { name: "Groceries category detail" }).getByText("No transactions in this month.")).toBeVisible();
+  });
+
+  test("category name, icon, and group save directly in the category modal", async ({ page }) => {
+    await page.goto("/budget");
+    await page.locator(".budget-group").getByRole("button", { name: /Groceries/ }).click();
+    const detail = page.getByRole("dialog", { name: "Groceries category detail" });
+    await detail.getByRole("button", { name: "Change category icon" }).click();
+    await detail.getByRole("button", { name: "Coffee", exact: true }).click();
+    await expect(detail.locator(".category-autosave-status")).toContainText("Saved");
+    await detail.getByLabel("Category name").fill("Food");
+    await detail.getByLabel("Category name").blur();
+    const renamedDetail = page.getByRole("dialog", { name: "Food category detail" });
+    await expect(renamedDetail.getByLabel("Category name")).toHaveValue("Food");
+    await renamedDetail.getByRole("button", { name: "Lifestyle" }).click();
+    await expect(renamedDetail.getByRole("button", { name: "Lifestyle" })).toHaveAttribute("aria-pressed", "true");
+    await expect(renamedDetail.locator(".category-autosave-status")).toContainText("Saved");
   });
 
   test("Budget and Plan link to reconciled monthly Income", async ({ page }, testInfo) => {
@@ -113,8 +133,8 @@ test.describe("390px mobile visual QA", () => {
     const detail = page.getByRole("dialog", { name: /Publix transaction details/ });
     await expect(detail).toBeVisible();
     await expect(detail.getByText("Split transaction")).toBeVisible();
-    await expect(detail.getByText("Mark reviewed")).toBeVisible();
-    await detail.getByRole("button", { name: "Edit merchant name" }).click();
+    for (const control of ["Remember", "Recurring", "Transfer", "Exclude", "Review"]) await expect(detail.getByRole("button", { name: control, exact: true })).toBeVisible();
+    await detail.getByRole("button", { name: "Publix", exact: true }).click();
     await expect(detail.getByLabel("Merchant display name")).toHaveValue("Publix");
     await detail.getByLabel("Merchant display name").fill("Publix Market");
     await detail.locator(".category-select-trigger").click();
@@ -127,7 +147,7 @@ test.describe("390px mobile visual QA", () => {
     await expectNoHorizontalOverflow(page);
     await capture(page, testInfo, "activity-transaction-detail");
     await page.locator(".transaction-sheet").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(detail.getByRole("button", { name: "Save transaction" })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Save changes" })).toBeVisible();
     await capture(page, testInfo, "activity-transaction-detail-actions");
   });
 
@@ -151,7 +171,7 @@ test.describe("390px mobile visual QA", () => {
     await page.goto("/budget");
     await expect(page.locator(".budget-summary-ring")).toBeVisible();
     await expect(page.getByText("expected income minus assigned")).toBeVisible();
-    const budgetCategories = page.locator(".budget-page > .budget-group > .budget-list .budget-row");
+    const budgetCategories = page.locator(".budget-page > .budget-group .budget-row");
     await expect(budgetCategories).toHaveCount(7);
     await expect(page.getByRole("button", { name: /Groceries/ })).toBeVisible();
 
@@ -175,11 +195,13 @@ test.describe("390px mobile visual QA", () => {
     await expect(page.getByRole("heading", { name: "Today" })).toBeVisible();
     await expect(page.getByRole("button", { name: /Review 2/ })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: /Publix, Groceries/ }).click();
-    await page.getByLabel("Mark reviewed").check();
-    await page.getByRole("button", { name: "Save transaction" }).click();
+    let detail = page.getByRole("dialog", { name: /Publix transaction details/ });
+    await detail.getByRole("button", { name: "Review", exact: true }).click();
+    await detail.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByRole("dialog", { name: /Target transaction details/ })).toBeVisible();
-    await page.getByLabel("Mark reviewed").check();
-    await page.getByRole("button", { name: "Save transaction" }).click();
+    detail = page.getByRole("dialog", { name: /Target transaction details/ });
+    await detail.getByRole("button", { name: "Review", exact: true }).click();
+    await detail.getByRole("button", { name: "Save changes" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "All caught up" })).toBeVisible();
   });
@@ -224,15 +246,16 @@ test.describe("390px mobile visual QA", () => {
     await expect(actions).toBeFocused();
   });
 
-  test("transaction detail is full-screen and browser Back dismisses it", async ({ page }) => {
+  test("transaction detail floats as a dismissible modal", async ({ page }) => {
     await page.goto("/activity");
     await page.getByRole("button", { name: /Publix, Groceries/ }).click();
     const detail = page.getByRole("dialog", { name: /Publix transaction details/ });
     await page.locator(".transaction-sheet").evaluate((element) => { element.scrollTop = 180; });
     await expect(detail).toBeVisible();
     const box = await page.locator(".transaction-sheet").boundingBox();
-    expect(box?.height ?? 0).toBeGreaterThanOrEqual(840);
-    await page.goBack();
+    expect(box?.height ?? 9999).toBeLessThan(844);
+    expect(box?.y ?? 0).toBeGreaterThan(0);
+    await detail.getByRole("button", { name: "Close transaction", exact: true }).click();
     await expect(detail).toBeHidden();
   });
 
@@ -244,6 +267,9 @@ test.describe("390px mobile visual QA", () => {
     const values = await detail.locator('.split-row input').evaluateAll((inputs) => inputs.map((input) => Number((input as HTMLInputElement).value)));
     expect(Math.round(values.reduce((sum, value) => sum + value, 0) * 100)).toBe(7421);
     await expect(detail.locator(".split-total")).toHaveClass(/valid/);
+    await detail.getByLabel("Split 1 amount").fill("20");
+    await expect(detail.getByLabel("Split 2 amount")).toHaveValue("54.21");
+    await expect(detail.locator(".split-total")).toHaveClass(/valid/);
   });
 
   test("experimental imports stay unavailable in the release configuration", async ({ page }) => {
@@ -251,9 +277,11 @@ test.describe("390px mobile visual QA", () => {
     await expect(page.getByRole("heading", { level: 1, name: "Import inbox" })).toHaveCount(0);
   });
 
-  test("Settings manages custom category groups without leaving the page", async ({ page }) => {
-    await page.goto("/settings");
-    await page.locator(".category-group-settings > summary").click();
+  test("Budget editor manages custom category groups without leaving the budget", async ({ page }) => {
+    await page.goto("/budget");
+    await page.getByRole("button", { name: "Edit budget" }).click();
+    const editor = page.getByRole("dialog", { name: "Edit July budget" });
+    await editor.locator(".category-group-settings > summary").click();
     const groupRowLayout = await page.locator(".category-group-row").first().evaluate((element) => {
       const style = getComputedStyle(element);
       return { display: style.display, alignItems: style.alignItems, minHeight: Number.parseFloat(style.minHeight) };
