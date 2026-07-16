@@ -67,7 +67,7 @@ test.describe("390px mobile visual QA", () => {
 
   test("Budget and Plan link to reconciled monthly Income", async ({ page }, testInfo) => {
     await page.goto("/budget");
-    await page.getByRole("link", { name: /Expected income/ }).click();
+    await page.getByRole("link", { name: "Income", exact: true }).click();
     await expect(page).toHaveURL(/\/income\?month=2026-07/);
     await expect(page.getByRole("heading", { level: 1, name: "Income" })).toBeVisible();
     await expect(page.getByText("$6,850.00")).toBeVisible();
@@ -151,10 +151,8 @@ test.describe("390px mobile visual QA", () => {
     await page.goto("/budget");
     await expect(page.locator(".budget-summary-ring")).toBeVisible();
     await expect(page.getByText("expected income minus assigned")).toBeVisible();
-    const essentials = page.getByRole("button", { name: /Essentials.*categories/ });
-    await essentials.click();
-    await expect(page.getByRole("button", { name: /Groceries/ })).toBeHidden();
-    await essentials.click();
+    const budgetCategories = page.locator(".budget-page > .budget-group > .budget-list .budget-row");
+    await expect(budgetCategories).toHaveCount(7);
     await expect(page.getByRole("button", { name: /Groceries/ })).toBeVisible();
 
     await page.goto("/activity");
@@ -167,6 +165,8 @@ test.describe("390px mobile visual QA", () => {
     await page.goto("/budget");
     const categoryRadius = await page.locator(".category-disc").first().evaluate((element) => getComputedStyle(element).borderRadius);
     expect(categoryRadius).toBe("11px");
+    const categoryBackground = await page.locator(".category-disc").first().evaluate((element) => getComputedStyle(element).backgroundImage);
+    expect(categoryBackground).toContain("linear-gradient");
   });
 
   test("Activity Review mode advances to all caught up", async ({ page }) => {

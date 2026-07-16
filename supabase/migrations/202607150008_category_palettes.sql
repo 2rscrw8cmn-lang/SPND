@@ -21,5 +21,16 @@ update public.categories set palette_key = case lower(name)
   else palette_key end
 where palette_key = 'slate';
 
-alter table public.categories
-  add constraint categories_palette_key_nonempty check (length(trim(palette_key)) > 0);
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_constraint
+    where conname = 'categories_palette_key_nonempty'
+      and conrelid = 'public.categories'::regclass
+  ) then
+    alter table public.categories
+      add constraint categories_palette_key_nonempty check (length(trim(palette_key)) > 0);
+  end if;
+end
+$$;
