@@ -13,11 +13,9 @@ import type { Metadata } from "next";
 import { PageShell } from "@/components/page-shell";
 import { SignOutButton } from "@/components/sign-out-button";
 import { SimpleFinConnection } from "@/components/simplefin-connection";
-import { ExpectedIncomeSettings } from "@/components/expected-income-settings";
 import {
   getBudgetWorkspace,
   getConnectionHealth,
-  getExpectedIncomeSources,
   getHouseholdSummary,
 } from "@/lib/data";
 import { getMerchantRules } from "@/lib/data";
@@ -31,12 +29,11 @@ import { InstallAppSettings } from "@/components/install-app-settings";
 export const metadata: Metadata = { title: "Settings" };
 
 export default async function SettingsPage() {
-  const [health, workspace, household, incomeSources, merchantRules] =
+  const [health, workspace, household, merchantRules] =
     await Promise.all([
       getConnectionHealth(),
       getBudgetWorkspace(),
       getHouseholdSummary(),
-      getExpectedIncomeSources(),
       getMerchantRules(),
     ]);
   return (
@@ -95,7 +92,10 @@ export default async function SettingsPage() {
             </p>
           </div>
         </div>
-        <ExpectedIncomeSettings initialSources={incomeSources} />
+        <a className="settings-row card" href="/plan#income-setup">
+          <span className="settings-row-icon"><CircleDollarSign size={19} /></span>
+          <div><strong>Expected income</strong><span>Manage schedules and deposit matching in Plan</span></div>
+        </a>
         <MerchantRuleSettings
           initialRules={merchantRules}
           categories={workspace.categories}

@@ -1,4 +1,3 @@
-import { addMonths, format } from "date-fns";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { authenticatedHousehold } from "@/lib/server-auth";
@@ -6,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { allocationsBalance } from "@/lib/transaction-updates";
 import { allocationAggregateDeltas } from "@/lib/remembered-rules";
 import { normalizeMerchant } from "@/lib/utils";
+import { attemptIncomeReconciliation } from "@/lib/income-reconciliation";
 
 const allocationSchema = z.object({ categoryId: z.string().uuid(), amountCents: z.number().int() });
 const schema = z.object({
@@ -45,8 +45,9 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (!snapshot) return NextResponse.json({ message: "There is no edit to undo." }, { status: 409 });
     const { error } = await supabase.rpc("update_transaction_with_allocations", { p_household_id: auth.householdId, p_transaction_id: id, p_updates: { display_name: snapshot.displayName, note: snapshot.note, excluded: snapshot.excluded, is_transfer: snapshot.isTransfer, is_recurring: snapshot.isRecurring, review_status: snapshot.reviewStatus }, p_allocations: snapshot.allocations.map((item) => ({ category_id: item.categoryId, amount_cents: item.amountCents })) });
     if (error) return NextResponse.json({ message: "The previous edit could not be restored." }, { status: 500 });
+    const { data: restoredTransaction, error: reviewMetadataError } = await supabase.from("transactions").update({ reviewed_at: snapshot.reviewedAt, reviewed_by: snapshot.reviewedBy }).eq("id", id).eq("household_id", auth.householdId).select("updated_at").maybeSingle();
     await supabase.from("audit_events").insert({ household_id: auth.householdId, actor_user_id: auth.userId, entity_type: "transaction", entity_id: id, action: "undone", metadata: { restored: snapshot } });
-    return NextResponse.json({ message: "Last transaction edit undone.", restored: snapshot });
+    return NextResponse.json({ message: reviewMetadataError ? "Transaction edit undone; review metadata will refresh shortly." : "Last transaction edit undone.", restored: snapshot, updatedAt: restoredTransaction?.updated_at });
   }
 
   let requestedAllocations = body.data.allocations;
@@ -83,15 +84,19 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   const { error: updateError } = await supabase.rpc("update_transaction_with_allocations", { p_household_id: auth.householdId, p_transaction_id: id, p_updates: updates, p_allocations: requestedAllocations ? requestedAllocations.map((item) => ({ category_id: item.categoryId, amount_cents: item.amountCents })) : null });
   if (updateError?.code === "40001") return NextResponse.json({ message: "This transaction was changed by another household member. Review their changes before saving yours." }, { status: 409 });
   if (updateError) return NextResponse.json({ message: "Transaction and category allocations could not be saved." }, { status: 500 });
-  if (body.data.isRecurring) {
-    const amount = Math.abs(Number(transaction.amount_cents));
-    const nextDue = addMonths(new Date(transaction.transacted_at as string), 1);
-    await supabase.from("recurring_items").upsert({ household_id: auth.householdId, type: Number(transaction.amount_cents) >= 0 ? "income" : "expense", name: transaction.merchant, merchant_pattern: normalizeMerchant(transaction.merchant as string), amount_cents: amount, cadence: "monthly", next_due_date: format(nextDue, "yyyy-MM-dd"), is_confirmed: true, active: true, state: "confirmed", updated_at: now }, { onConflict: "household_id,type,merchant_pattern" });
-  } else if (body.data.isRecurring === false) {
-    await supabase.from("recurring_items").update({ active: false, state: "inactive", updated_at: now }).eq("household_id", auth.householdId).eq("type", Number(transaction.amount_cents) >= 0 ? "income" : "expense").eq("merchant_pattern", normalizeMerchant(transaction.merchant as string));
+  if (body.data.isRecurring === false) {
+    const merchantPattern = normalizeMerchant(transaction.merchant as string);
+    if (Number(transaction.amount_cents) > 0) {
+      await supabase.from("expected_income_sources").update({ active: false, updated_at: now }).eq("household_id", auth.householdId).eq("normalized_merchant", merchantPattern);
+    } else {
+      await supabase.from("recurring_items").update({ active: false, state: "inactive", updated_at: now }).eq("household_id", auth.householdId).eq("type", "expense").eq("merchant_pattern", merchantPattern);
+    }
   }
   const actions = [body.data.displayName !== undefined ? "display_name_changed" : null, body.data.allocations ? "split" : null, body.data.categoryId !== undefined ? "categorized" : null, body.data.excluded !== undefined ? "exclusion_changed" : null, body.data.isTransfer !== undefined ? "transfer_changed" : null, body.data.isRecurring !== undefined ? "recurring_changed" : null, body.data.reviewed !== undefined ? "review_changed" : null, body.data.alwaysCategorize ? "merchant_rule_created" : null].filter(Boolean);
   await supabase.from("audit_events").insert({ household_id: auth.householdId, actor_user_id: auth.userId, entity_type: "transaction", entity_id: id, action: "edited", metadata: { before, actions, categoryId: body.data.categoryId, splitCount: body.data.allocations?.length } });
+  if (Number(transaction.amount_cents) > 0 && (body.data.categoryId !== undefined || body.data.allocations || body.data.excluded !== undefined || body.data.isTransfer !== undefined)) {
+    await attemptIncomeReconciliation(supabase, auth.householdId, auth.userId);
+  }
   const [{ data: updatedTransaction }, { data: updatedAllocations }] = await Promise.all([
     supabase.from("transactions").select("id,merchant,display_name,amount_cents,status,transacted_at,review_status,reviewed_at,reviewed_by,note,excluded,is_transfer,is_recurring,updated_at").eq("id", id).eq("household_id", auth.householdId).single(),
     supabase.from("transaction_allocations").select("category_id,amount_cents,source").eq("transaction_id", id).eq("household_id", auth.householdId),

@@ -1,37 +1,43 @@
-import { format, parseISO } from "date-fns";
-import { ArrowDownLeft, ArrowUpRight, CalendarClock, FileUp } from "lucide-react";
+import { addMonths, format, parseISO } from "date-fns";
+import { ArrowDownLeft, ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, ShieldCheck } from "lucide-react";
 import type { Metadata } from "next";
 import Link from "next/link";
+import { IncomeView } from "@/components/income-view";
 import { PageShell } from "@/components/page-shell";
 import { PlanEditor } from "@/components/plan-editor";
-import { RecurringCandidates } from "@/components/recurring-candidates";
 import { PlanList } from "@/components/plan-list";
-import { getActivityData, getPlanData, getRecurringCandidates } from "@/lib/data";
+import { RecurringCandidates } from "@/components/recurring-candidates";
+import { getBudgetWorkspace, getExpectedIncomeSources, getIncomeView, getPlanData, getRecurringCandidates, getSafeBreakdown } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
-import { importsEnabled } from "@/lib/env";
 
-export const metadata: Metadata = { title: "Cash-flow plan" };
+export const metadata: Metadata = { title: "Plan" };
 
-export default async function PlanPage() {
-  const [plan, candidates, transactions] = await Promise.all([getPlanData(), getRecurringCandidates(), getActivityData(50)]);
-  const activePlan = plan.filter((item) => item.state !== "inactive");
-  const nextIncome = activePlan.find((item) => item.type === "income");
-  const dueBeforeIncome = nextIncome ? activePlan.filter((item) => item.type === "expense" && item.date <= nextIncome.date).reduce((sum, item) => sum + Math.abs(item.amountCents), 0) : 0;
-  const upcomingIncome = activePlan.filter((item) => item.type === "income").reduce((sum, item) => sum + item.amountCents, 0);
-  const upcomingExpenses = activePlan.filter((item) => item.type === "expense").reduce((sum, item) => sum + Math.abs(item.amountCents), 0);
+export default async function PlanPage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
+  const { month } = await searchParams;
+  const [income, sources, plan, candidates, safe, workspace] = await Promise.all([
+    getIncomeView(month),
+    getExpectedIncomeSources(),
+    getPlanData(month),
+    getRecurringCandidates(),
+    getSafeBreakdown(),
+    getBudgetWorkspace(month),
+  ]);
+  const monthDate = parseISO(workspace.month);
+  const expenses = plan.filter((item) => item.type === "expense" && item.state !== "inactive");
+  const today = format(new Date(), "yyyy-MM-dd");
+  const nextIncome = income.openExpectations.find((item) => item.date >= today) ?? income.upcoming.find((item) => item.date >= today) ?? income.upcoming[0];
+  const dueBeforeIncome = expenses.filter((item) => !nextIncome || item.date <= nextIncome.date).reduce((sum, item) => sum + Math.abs(item.amountCents), 0);
+  const projectedRemainder = income.expectedCents - expenses.reduce((sum, item) => sum + Math.abs(item.amountCents), 0);
 
   return <PageShell>
-    <h1 className="page-title">Cash-flow plan</h1>
-    <p className="page-subtitle">Tell SPND what is coming before it hits your accounts. This is what makes Safe to SPND useful.</p>
-    {importsEnabled() ? <Link className="plan-import-link card" href="/settings/imports"><FileUp size={20} /><span><strong>Experimental import inbox</strong><small>Controlled testing only</small></span></Link> : null}
-    <div className="plan-summary-grid">
-      <Link className="summary-card card plan-income-link" href="/income"><span><CalendarClock size={16} /> Next income</span><strong>{nextIncome ? format(parseISO(nextIncome.date), "MMM d") : "Not planned"}</strong><small>{nextIncome ? `${formatCurrency(dueBeforeIncome)} due first` : "Add a paycheck or deposit"}</small></Link>
-      <div className="summary-card card"><span><ArrowDownLeft size={16} /> Coming in</span><strong className="plan-income">{formatCurrency(upcomingIncome, { compact: true })}</strong><small>all upcoming income</small></div>
-      <div className="summary-card card"><span><ArrowUpRight size={16} /> Going out</span><strong>{formatCurrency(upcomingExpenses, { compact: true })}</strong><small>all upcoming obligations</small></div>
-    </div>
-    <div className="section-heading"><div><h2>Upcoming cash flow</h2><p>Recurring items and one-time plans, ordered by date.</p></div></div>
-    <PlanList initialItems={plan} transactions={transactions} />
-    <PlanEditor />
-    <RecurringCandidates initialCandidates={candidates} />
+    <header className="cash-flow-heading"><div><h1 className="page-title">Plan</h1><p className="page-subtitle">Know what is coming and what is safe before the next deposit.</p></div>{!sources.some((source) => source.active) ? <a className="primary-button plan-income-cta" href="#income-setup">Plan your income</a> : null}</header>
+    <nav className="month-rail" aria-label="Plan month">{[-1, 0, 1].map((offset) => { const date = addMonths(monthDate, offset); return <Link aria-current={offset === 0 ? "date" : undefined} className={offset === 0 ? "selected" : ""} href={`/plan?month=${format(date, "yyyy-MM")}`} key={offset}>{offset < 0 ? <ChevronLeft size={16} /> : null}{format(date, offset === 0 ? "MMM yyyy" : "MMM")}{offset > 0 ? <ChevronRight size={16} /> : null}</Link>; })}</nav>
+    <section className="cash-flow-hero" aria-label="Cash-flow summary">
+      <div className="cash-flow-hero-main"><span><ShieldCheck size={16} /> Safe to SPND</span><strong>{formatCurrency(safe.safeCents)}</strong><small>{safe.nextIncomeDate ? `until ${format(parseISO(safe.nextIncomeDate), "MMM d")}` : "Add expected income to complete the forecast"}</small></div>
+      <dl><div><dt><CalendarClock size={14} /> Next income</dt><dd>{nextIncome ? format(parseISO(nextIncome.date), "MMM d") : "Not planned"}</dd></div><div><dt><ArrowUpRight size={14} /> Due first</dt><dd>{formatCurrency(dueBeforeIncome, { compact: true })}</dd></div><div><dt><ArrowDownLeft size={14} /> Projected</dt><dd className={projectedRemainder < 0 ? "negative" : "positive"}>{formatCurrency(projectedRemainder, { compact: true, signed: projectedRemainder < 0 })}</dd></div></dl>
+    </section>
+    <section id="income" className="cash-flow-section"><div className="section-heading"><div><h2>Income</h2><p>Expected deposits and the transactions that fulfill them.</p></div></div><IncomeView categories={workspace.categories} data={income} embedded sources={sources} /></section>
+    <section className="cash-flow-section"><div className="section-heading"><div><h2>Upcoming obligations</h2><p>Recurring bills and one-time expenses ordered by date.</p></div></div><PlanList initialItems={expenses} /><PlanEditor /></section>
+    <RecurringCandidates initialCandidates={candidates.filter((item) => item.type === "expense")} />
   </PageShell>;
 }

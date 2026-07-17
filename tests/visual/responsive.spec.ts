@@ -27,6 +27,14 @@ test.describe("required responsive viewports", () => {
     const width = testInfo.project.use.viewport?.width ?? 390;
     if (width < 600) expect(box?.width ?? 0).toBeGreaterThanOrEqual(width - 17);
     if (width >= 900) { expect(box?.width ?? 9999).toBeLessThanOrEqual(520); expect((box?.x ?? 0) + (box?.width ?? 0)).toBeGreaterThanOrEqual(width - 1); }
+    if (width < 600) {
+      await expect(page.getByLabel("Household note")).toBeHidden();
+      await expect(page.getByText("Change history")).toBeHidden();
+    } else {
+      await expect(page.getByLabel("Household note")).toBeVisible();
+      await expect(page.getByText("Change history")).toBeVisible();
+    }
+    await expect(page.getByText("Status", { exact: true })).toHaveCount(0);
     await expect(page.getByRole("button", { name: "Close transaction", exact: true })).toBeVisible();
   });
 });

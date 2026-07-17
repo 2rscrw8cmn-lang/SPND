@@ -83,6 +83,58 @@ suite("disposable Supabase accounting workflows", () => {
     expect(allocations.data).toEqual([{ amount_cents: -1001 }]);
   });
 
+  it("enforces canonical income sources, occurrences, and distinct matches", async () => {
+    const source = await admin.from("expected_income_sources").insert({
+      household_id: householdId,
+      name: "Test payroll",
+      expected_amount_cents: 250000,
+      cadence: "monthly",
+      next_expected_date: "2026-07-31",
+      source_type: "recurring",
+      normalized_merchant: "test payroll",
+      auto_match_enabled: true,
+      created_by: zackId,
+    }).select("id,normalized_merchant,auto_match_enabled").single();
+    expect(source.error).toBeNull();
+    expect(source.data).toMatchObject({ normalized_merchant: "test payroll", auto_match_enabled: true });
+
+    const occurrence = await admin.from("planned_items").insert({
+      household_id: householdId,
+      expected_income_source_id: source.data!.id,
+      name: "Test payroll",
+      date: "2026-07-31",
+      amount_cents: 250000,
+      type: "income",
+      state: "confirmed",
+    }).select("id").single();
+    expect(occurrence.error).toBeNull();
+    const duplicate = await admin.from("planned_items").insert({
+      household_id: householdId,
+      expected_income_source_id: source.data!.id,
+      name: "Duplicate payroll",
+      date: "2026-07-31",
+      amount_cents: 250000,
+      type: "income",
+      state: "confirmed",
+    });
+    expect(duplicate.error?.code).toBe("23505");
+
+    const deposit = await admin.from("transactions").insert({
+      household_id: householdId,
+      account_id: accountId,
+      source_fingerprint: `income-${householdId}`,
+      transacted_at: "2026-07-31T12:00:00.000Z",
+      posted_at: "2026-07-31T12:00:00.000Z",
+      amount_cents: 250000,
+      merchant: "Test Payroll",
+      normalized_merchant: "test payroll",
+      status: "posted",
+    }).select("id").single();
+    expect(deposit.error).toBeNull();
+    const match = await admin.from("planned_items").update({ state: "matched", match_method: "manual", matched_transaction_id: deposit.data!.id }).eq("id", occurrence.data!.id).select("state,match_method,matched_transaction_id").single();
+    expect(match.data).toEqual({ state: "matched", match_method: "manual", matched_transaction_id: deposit.data!.id });
+  });
+
   it("moves budget money atomically", async () => {
     expect((await stephanie.rpc("move_budget_money", { p_household_id: householdId, p_month: "2026-07-01", p_from_category_id: fromCategoryId, p_to_category_id: toCategoryId, p_amount_cents: 2500 })).error).toBeNull();
     const budgets = await zack.from("monthly_budgets").select("category_id,budgeted_cents").eq("household_id", householdId);

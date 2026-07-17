@@ -1,3 +1,14 @@
 import { z } from "zod";
 
-export const incomeSourceSchema = z.object({ name: z.string().trim().min(1).max(100), expectedAmountCents: z.number().int().positive().max(100_000_000), cadence: z.enum(["weekly", "biweekly", "semimonthly", "monthly", "annual"]).nullable(), nextExpectedDate: z.iso.date().nullable(), explicitDates: z.array(z.iso.date()).max(50).default([]), active: z.boolean().default(true), acceptableVarianceCents: z.number().int().min(0).max(10_000_000).nullable(), sourceType: z.enum(["recurring", "one_time"]) }).refine((value) => value.nextExpectedDate || value.explicitDates.length, "Add an expected date.");
+export const incomeSourceSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  expectedAmountCents: z.number().int().positive().max(100_000_000),
+  cadence: z.enum(["weekly", "biweekly", "semimonthly", "monthly", "annual"]).nullable(),
+  nextExpectedDate: z.iso.date().nullable(),
+  explicitDates: z.array(z.iso.date()).max(50).default([]),
+  active: z.boolean().default(true),
+  acceptableVarianceCents: z.number().int().min(0).max(10_000_000).nullable(),
+  sourceType: z.enum(["recurring", "one_time"]),
+  normalizedMerchant: z.string().trim().max(160).nullable().default(null),
+  autoMatchEnabled: z.boolean().default(true),
+}).refine((value) => value.nextExpectedDate || value.explicitDates.length, "Add an expected date.");

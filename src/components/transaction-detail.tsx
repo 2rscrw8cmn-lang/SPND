@@ -5,11 +5,11 @@ import {
   ArrowLeftRight,
   BadgeCheck,
   Check,
-  CircleCheck,
   CreditCard,
   EyeOff,
   FileText,
   MessageSquareText,
+  MoreHorizontal,
   Pencil,
   Plus,
   Repeat2,
@@ -26,11 +26,12 @@ import { useState } from "react";
 import { BottomSheet } from "@/components/bottom-sheet";
 import { CategoryPickerSheet } from "@/components/category-picker";
 import { CategoryIcon } from "@/components/icons";
+import { RecurringSetupSheet } from "@/components/recurring-setup-sheet";
 import { categoryVisualStyle } from "@/lib/category-style";
 import type { ActivityTransaction, BudgetCategory } from "@/lib/data";
 import { formatCurrency } from "@/lib/utils";
 
-type Split = { categoryId: string; dollars: number };
+type Split = { categoryId: string; rawAmount: string };
 type PickerTarget = { type: "main" } | { type: "split"; index: number };
 
 export function TransactionDetail({
@@ -59,33 +60,33 @@ export function TransactionDetail({
     transaction.allocations.length > 1,
   );
   const [pickerTarget, setPickerTarget] = useState<PickerTarget | null>(null);
+  const [recurringSetup, setRecurringSetup] = useState(false);
   const absoluteCents = Math.abs(transaction.amountCents);
   const firstSplitCents = Math.floor(absoluteCents / 2);
   const [splits, setSplits] = useState<Split[]>(
     transaction.allocations.length > 1
       ? transaction.allocations.map((item) => ({
           categoryId: item.categoryId,
-          dollars: Math.abs(item.amountCents) / 100,
+          rawAmount: formatSplitAmount(Math.abs(item.amountCents)),
         }))
       : [
           {
             categoryId: transaction.categoryId || categories[0]?.id || "",
-            dollars: firstSplitCents / 100,
+            rawAmount: formatSplitAmount(firstSplitCents),
           },
           {
             categoryId:
               categories.find((item) => item.id !== transaction.categoryId)
                 ?.id ?? "",
-            dollars: (absoluteCents - firstSplitCents) / 100,
+            rawAmount: formatSplitAmount(absoluteCents - firstSplitCents),
           },
         ],
   );
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
-  const splitCents = splits.reduce(
-    (sum, item) => sum + Math.round(item.dollars * 100),
-    0,
-  );
+  const splitAmounts = splits.map((item) => parseSplitAmount(item.rawAmount));
+  const splitCents = splitAmounts.reduce<number>((sum, cents) => sum + (cents ?? 0), 0);
+  const splitHasInvalidAmount = splitAmounts.some((cents) => cents === null);
   const remainingSplitCents = absoluteCents - splitCents;
   const selectedCategory =
     categories.find((category) => category.id === categoryId) ?? null;
@@ -112,32 +113,34 @@ export function TransactionDetail({
     setSplits(
       splits.map((split, index) => ({
         ...split,
-        dollars: (base + (index < remainder ? 1 : 0)) / 100,
+        rawAmount: formatSplitAmount(base + (index < remainder ? 1 : 0)),
       })),
     );
   }
 
   function updateSplitAmount(index: number, rawValue: string) {
-    const cents = Math.max(
-      0,
-      Math.round((Number(rawValue.replace(",", ".")) || 0) * 100),
-    );
+    if (!/^\d*(?:[.,]\d{0,2})?$/.test(rawValue)) return;
+    const cents = parseSplitAmount(rawValue);
+    if (cents === null || rawValue.endsWith(".") || rawValue.endsWith(",")) {
+      setSplits(splits.map((item, itemIndex) => itemIndex === index ? { ...item, rawAmount: rawValue } : item));
+      return;
+    }
     const balanceIndex =
       index === splits.length - 1 ? Math.max(0, index - 1) : splits.length - 1;
     const fixedCents = splits.reduce(
       (sum, item, itemIndex) =>
         itemIndex === index || itemIndex === balanceIndex
           ? sum
-          : sum + Math.round(item.dollars * 100),
+          : sum + (parseSplitAmount(item.rawAmount) ?? 0),
       0,
     );
     const balanceCents = Math.max(0, absoluteCents - fixedCents - cents);
     setSplits(
       splits.map((item, itemIndex) =>
         itemIndex === index
-          ? { ...item, dollars: cents / 100 }
+          ? { ...item, rawAmount: rawValue }
           : itemIndex === balanceIndex
-            ? { ...item, dollars: balanceCents / 100 }
+            ? { ...item, rawAmount: formatSplitAmount(balanceCents) }
             : item,
       ),
     );
@@ -156,23 +159,23 @@ export function TransactionDetail({
       );
   }
 
-  async function save() {
+  async function save(forceReviewed = false) {
     if (
       splitting &&
-      (splitCents !== absoluteCents ||
+      (splitHasInvalidAmount || splitCents !== absoluteCents ||
         splits.some(
-          (item) => !item.categoryId || Math.round(item.dollars * 100) <= 0,
+          (item) => !item.categoryId || (parseSplitAmount(item.rawAmount) ?? 0) <= 0,
         ))
     ) {
       setMessage(
         `Each split needs a category and positive amount, totaling ${formatCurrency(absoluteCents)} exactly.`,
       );
-      return;
+      return false;
     }
     setSaving(true);
     setMessage("");
     const sign = transaction.amountCents < 0 ? -1 : 1;
-    const effectivelyReviewed = reviewed || excluded || isTransfer;
+    const effectivelyReviewed = forceReviewed || reviewed || excluded || isTransfer;
     const payload = {
       displayName:
         displayName === transaction.importedMerchant ? null : displayName,
@@ -180,7 +183,7 @@ export function TransactionDetail({
       allocations: splitting
         ? splits.map((item) => ({
             categoryId: item.categoryId,
-            amountCents: Math.round(item.dollars * 100) * sign,
+            amountCents: (parseSplitAmount(item.rawAmount) ?? 0) * sign,
           }))
         : undefined,
       note,
@@ -191,18 +194,25 @@ export function TransactionDetail({
       reviewed: effectivelyReviewed,
       expectedUpdatedAt: transaction.updatedAt,
     };
-    const response = await fetch(`/api/transactions/${transaction.id}`, {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    let response: Response;
+    try {
+      response = await fetch(`/api/transactions/${transaction.id}`, {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      setSaving(false);
+      setMessage("Transaction could not be saved. Check your connection and try again.");
+      return false;
+    }
     const body = (await response.json()) as {
       message?: string;
       transaction?: { updated_at?: string };
     };
     setSaving(false);
     setMessage(body.message ?? "");
-    if (!response.ok) return;
+    if (!response.ok) return false;
     const category = categories.find((item) => item.id === categoryId);
     onUpdated({
       ...transaction,
@@ -228,7 +238,7 @@ export function TransactionDetail({
             category:
               categories.find((candidate) => candidate.id === item.categoryId)
                 ?.name ?? "Unsorted",
-            amountCents: Math.round(item.dollars * 100) * sign,
+            amountCents: (parseSplitAmount(item.rawAmount) ?? 0) * sign,
           }))
         : categoryId
           ? [
@@ -240,6 +250,7 @@ export function TransactionDetail({
             ]
           : [],
     });
+    return true;
   }
 
   async function undo() {
@@ -251,6 +262,7 @@ export function TransactionDetail({
     });
     const body = (await response.json()) as {
       message?: string;
+      updatedAt?: string;
       restored?: {
         displayName: string | null;
         note: string | null;
@@ -258,6 +270,7 @@ export function TransactionDetail({
         isTransfer: boolean;
         isRecurring: boolean;
         reviewStatus: string;
+        reviewedAt: string | null;
         allocations: Array<{ categoryId: string; amountCents: number }>;
       };
     };
@@ -269,12 +282,14 @@ export function TransactionDetail({
       );
       onUpdated({
         ...transaction,
+        updatedAt: body.updatedAt ?? transaction.updatedAt,
         merchant: body.restored.displayName || transaction.importedMerchant,
         note: body.restored.note ?? "",
         excluded: body.restored.excluded,
         isTransfer: body.restored.isTransfer,
         isRecurring: body.restored.isRecurring,
         reviewStatus: body.restored.reviewStatus as "reviewed" | "needs_review",
+        reviewedAt: body.restored.reviewedAt,
         categoryId:
           body.restored.allocations.length === 1
             ? body.restored.allocations[0]!.categoryId
@@ -367,54 +382,36 @@ export function TransactionDetail({
           <p>{format(new Date(transaction.isoDate), "EEEE, MMMM d, yyyy")}</p>
         </div>
 
-        <div
-          className="transaction-control-strip"
-          role="group"
-          aria-label="Transaction controls"
-        >
-          <QuickControl
-            active={always}
-            disabled={!categoryId || splitting}
-            icon={Sparkles}
-            label="Remember"
-            onClick={() => setAlways(!always)}
-          />
-          <QuickControl
-            active={isRecurring}
-            icon={Repeat2}
-            label="Recurring"
-            onClick={() => setIsRecurring(!isRecurring)}
-          />
-          <QuickControl
-            active={isTransfer}
-            icon={ArrowLeftRight}
-            label="Transfer"
-            onClick={() => {
-              const next = !isTransfer;
-              setIsTransfer(next);
-              if (next) {
-                setExcluded(true);
-                setReviewed(true);
-              }
-            }}
-          />
-          <QuickControl
-            active={excluded || isTransfer}
-            disabled={isTransfer}
-            icon={EyeOff}
-            label="Exclude"
-            onClick={() => {
-              const next = !excluded;
-              setExcluded(next);
-              if (next) setReviewed(true);
-            }}
-          />
-          <QuickControl
-            active={reviewed}
-            icon={BadgeCheck}
-            label="Review"
-            onClick={() => setReviewed(!reviewed)}
-          />
+        <div className="transaction-primary-controls">
+          <button
+            className={`transaction-review-button ${reviewed ? "active" : ""}`}
+            disabled={saving || reviewed}
+            onClick={() => void save(true)}
+          >
+            <BadgeCheck size={19} />
+            <span>
+              <strong>{reviewed ? "Reviewed" : "Review transaction"}</strong>
+              <small>{reviewed ? "This transaction is complete" : "Save changes and continue"}</small>
+            </span>
+            {reviewed ? <Check size={18} /> : <span aria-hidden="true">›</span>}
+          </button>
+          <details className="transaction-more-controls">
+            <summary><MoreHorizontal size={18} /> More controls</summary>
+            <div className="transaction-control-strip" role="group" aria-label="Secondary transaction controls">
+              <QuickControl active={always} disabled={!categoryId || splitting} icon={Sparkles} label="Remember" onClick={() => setAlways(!always)} />
+              <QuickControl active={isRecurring} icon={Repeat2} label="Recurring" onClick={() => setRecurringSetup(true)} />
+              <QuickControl active={isTransfer} icon={ArrowLeftRight} label="Transfer" onClick={() => {
+                const next = !isTransfer;
+                setIsTransfer(next);
+                if (next) { setExcluded(true); setReviewed(true); }
+              }} />
+              <QuickControl active={excluded || isTransfer} disabled={isTransfer} icon={EyeOff} label="Exclude" onClick={() => {
+                const next = !excluded;
+                setExcluded(next);
+                if (next) setReviewed(true);
+              }} />
+            </div>
+          </details>
         </div>
 
         <dl className="transaction-facts">
@@ -429,14 +426,6 @@ export function TransactionDetail({
               <FileText size={15} /> Description
             </dt>
             <dd>{transaction.rawDescription || "No provider description"}</dd>
-          </div>
-          <div>
-            <dt>
-              <CircleCheck size={15} /> Status
-            </dt>
-            <dd className={reviewed ? "reviewed-text" : "needs-review-text"}>
-              {reviewed ? "Reviewed" : "Needs review"}
-            </dd>
           </div>
         </dl>
 
@@ -542,10 +531,14 @@ export function TransactionDetail({
                         inputMode="decimal"
                         type="text"
                         pattern="[0-9]*[.,]?[0-9]*"
-                        value={split.dollars || ""}
+                        value={split.rawAmount}
                         onChange={(event) =>
                           updateSplitAmount(index, event.target.value)
                         }
+                        onBlur={(event) => {
+                          const cents = parseSplitAmount(event.target.value);
+                          if (cents !== null) setSplits((items) => items.map((item, itemIndex) => itemIndex === index ? { ...item, rawAmount: formatSplitAmount(cents) } : item));
+                        }}
                       />
                     </label>
                     {splits.length > 2 ? (
@@ -587,7 +580,7 @@ export function TransactionDetail({
               <button
                 className="add-split-button"
                 onClick={() =>
-                  setSplits([...splits, { categoryId: "", dollars: 0 }])
+                  setSplits([...splits, { categoryId: "", rawAmount: "" }])
                 }
               >
                 <Plus size={16} /> Add split
@@ -631,7 +624,7 @@ export function TransactionDetail({
             <button
               className="primary-button transaction-save"
               disabled={saving}
-              onClick={save}
+              onClick={() => void save()}
             >
               {reviewed ? <Check size={18} /> : null}
               {saving ? "Saving…" : "Save changes"}
@@ -665,8 +658,29 @@ export function TransactionDetail({
           title={pickerTitle}
         />
       ) : null}
+      {recurringSetup ? (
+        <RecurringSetupSheet
+          transaction={transaction}
+          onClose={() => setRecurringSetup(false)}
+          onSaved={() => {
+            setIsRecurring(true);
+            setRecurringSetup(false);
+          }}
+        />
+      ) : null}
     </>
   );
+}
+
+function parseSplitAmount(value: string) {
+  const normalized = value.trim().replace(",", ".");
+  if (!normalized || !/^\d+(?:\.\d{0,2})?$/.test(normalized)) return null;
+  const cents = Math.round(Number(normalized) * 100);
+  return Number.isFinite(cents) && cents >= 0 ? cents : null;
+}
+
+function formatSplitAmount(cents: number) {
+  return (cents / 100).toFixed(2).replace(/\.00$/, "");
 }
 
 function QuickControl({

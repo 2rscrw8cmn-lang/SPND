@@ -7,6 +7,7 @@ import { findPendingMatch, pendingMatchKey, reconcileAllocationAmounts, sourceFi
 import { shouldReopenAfterPendingChange } from "@/lib/remembered-rules";
 import { normalizeMerchant } from "@/lib/utils";
 import { buildSyncWindows, connectionNames, sanitizeProviderIssues, transactionDate, type SimpleFinResponse } from "@/lib/simplefin-core";
+import { attemptIncomeReconciliation } from "@/lib/income-reconciliation";
 
 function cents(amount: string) {
   const parsed = Number(amount);
@@ -223,6 +224,7 @@ export async function syncConnection(connectionId: string, initial = false) {
       }
     }
     await detectRecurringCandidates(connection.household_id as string);
+    await attemptIncomeReconciliation(admin, connection.household_id as string);
     const finishedAt = new Date().toISOString();
     const warnings = [...providerWarnings];
     const partial = warnings.length > 0;

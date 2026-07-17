@@ -41,7 +41,8 @@ export function receivedIncomeTotal(
   transactions: Array<{ id: string; amountCents: number; status: string }>,
   allocations: Array<{ transactionId: string; categoryId: string }>,
   behaviorByCategory: Map<string, string>,
+  matchedTransactionIds: Set<string> = new Set(),
 ) {
   const incomeTransactionIds = new Set(allocations.filter((allocation) => behaviorByCategory.get(allocation.categoryId) === "income").map((allocation) => allocation.transactionId));
-  return transactions.filter((transaction) => transaction.status === "posted" && transaction.amountCents > 0 && incomeTransactionIds.has(transaction.id)).reduce((sum, transaction) => sum + transaction.amountCents, 0);
+  return transactions.filter((transaction) => transaction.status === "posted" && transaction.amountCents > 0 && (incomeTransactionIds.has(transaction.id) || matchedTransactionIds.has(transaction.id))).reduce((sum, transaction) => sum + transaction.amountCents, 0);
 }

@@ -108,15 +108,21 @@ export type BudgetWorkspace = {
 
 export type ExpectedIncomeSource = IncomeSchedule & {
   acceptableVarianceCents: number | null;
+  normalizedMerchant: string | null;
+  autoMatchEnabled: boolean;
 };
 export type ReceivedIncomeTransaction = ActivityTransaction & {
-  matchedTo: { plannedItemId: string; name: string } | null;
+  matchedTo: { plannedItemId: string; name: string; matchMethod: "automatic" | "manual" | "legacy" | null } | null;
 };
 export type OpenIncomeExpectation = {
   id: string;
+  sourceId: string | null;
   name: string;
   date: string;
   amountCents: number;
+  state: "confirmed";
+  matchMethod: null;
+  matchedTransactionId: null;
 };
 export type IncomeViewData = {
   month: string;
@@ -394,7 +400,7 @@ export async function getBudgetWorkspace(
       .eq("active", true),
     context.supabase
       .from("planned_items")
-      .select("category_id,amount_cents,matched_transaction_id")
+      .select("category_id,amount_cents,matched_transaction_id,type")
       .eq("household_id", context.householdId)
       .eq("state", "matched")
       .gte("date", format(monthDate, "yyyy-MM-dd"))
@@ -582,6 +588,7 @@ export async function getBudgetWorkspace(
       categoryId: allocation.category_id as string,
     })),
     behaviorByCategory,
+    new Set((matchedPlanItems ?? []).filter((item) => item.type === "income" && item.matched_transaction_id).map((item) => item.matched_transaction_id as string)),
   );
   const incomeSources = (incomeRows ?? []).map((source) => ({
     id: source.id as string,
@@ -651,6 +658,8 @@ export async function getExpectedIncomeSources(): Promise<
         active: true,
         sourceType: "recurring",
         acceptableVarianceCents: 5000,
+        normalizedMerchant: "payroll",
+        autoMatchEnabled: true,
       },
     ];
   const context = await householdContext();
@@ -658,7 +667,7 @@ export async function getExpectedIncomeSources(): Promise<
   const { data } = await context.supabase
     .from("expected_income_sources")
     .select(
-      "id,name,expected_amount_cents,cadence,explicit_dates,next_expected_date,active,source_type,acceptable_variance_cents",
+      "id,name,expected_amount_cents,cadence,explicit_dates,next_expected_date,active,source_type,acceptable_variance_cents,normalized_merchant,auto_match_enabled",
     )
     .eq("household_id", context.householdId)
     .order("active", { ascending: false })
@@ -676,6 +685,8 @@ export async function getExpectedIncomeSources(): Promise<
       source.acceptable_variance_cents === null
         ? null
         : Number(source.acceptable_variance_cents),
+    normalizedMerchant: source.normalized_merchant as string | null,
+    autoMatchEnabled: Boolean(source.auto_match_enabled),
   }));
 }
 
@@ -698,7 +709,7 @@ export async function getIncomeView(
       .filter((transaction) => transaction.merchant === "Payroll")
       .map((transaction) => ({
         ...transaction,
-        matchedTo: { plannedItemId: demoPlan[0]!.id, name: "Paycheck" },
+        matchedTo: { plannedItemId: demoPlan[0]!.id, name: "Paycheck", matchMethod: "manual" as const },
       }));
     const unmatched = deposits.filter(
       (transaction) => transaction.merchant !== "Payroll",
@@ -738,7 +749,7 @@ export async function getIncomeView(
   const [{ data: matches }, { data: openItems }] = await Promise.all([
     context.supabase
       .from("planned_items")
-      .select("id,name,matched_transaction_id")
+      .select("id,name,date,expected_income_source_id,matched_transaction_id,match_method")
       .eq("household_id", context.householdId)
       .eq("type", "income")
       .eq("state", "matched")
@@ -747,7 +758,7 @@ export async function getIncomeView(
       .not("matched_transaction_id", "is", null),
     context.supabase
       .from("planned_items")
-      .select("id,name,date,amount_cents")
+      .select("id,name,date,amount_cents,expected_income_source_id,state,match_method,matched_transaction_id")
       .eq("household_id", context.householdId)
       .eq("type", "income")
       .eq("state", "confirmed")
@@ -759,27 +770,36 @@ export async function getIncomeView(
   const matchByTransaction = new Map(
     (matches ?? []).map((item) => [
       item.matched_transaction_id as string,
-      { plannedItemId: item.id as string, name: item.name as string },
+      { plannedItemId: item.id as string, name: item.name as string, matchMethod: item.match_method as "automatic" | "manual" | "legacy" | null },
     ]),
   );
-  const received = deposits
-    .filter((transaction) => matchByTransaction.has(transaction.id))
-    .map((transaction) => ({
+  const matchedOccurrenceKeys = new Set((matches ?? []).map((item) => `${item.expected_income_source_id}:${item.date}`));
+  const upcoming = workspace.expectedIncome.filter((item) => !matchedOccurrenceKeys.has(`${item.sourceId}:${item.date}`));
+  const incomeCategoryIds = new Set(workspace.categories.filter((category) => category.behaviorType === "income").map((category) => category.id));
+  const eligibleDeposits = deposits.filter((transaction) =>
+    matchByTransaction.has(transaction.id) || transaction.allocations.some((allocation) => incomeCategoryIds.has(allocation.categoryId)),
+  );
+  const received = eligibleDeposits.map((transaction) => ({
       ...transaction,
       matchedTo: matchByTransaction.get(transaction.id) ?? null,
     }));
+  const eligibleIds = new Set(eligibleDeposits.map((transaction) => transaction.id));
   const unmatched = deposits.filter(
-    (transaction) => !matchByTransaction.has(transaction.id),
+    (transaction) => !matchByTransaction.has(transaction.id) && !eligibleIds.has(transaction.id),
   );
-  const receivedCents = received.reduce(
+  const receivedCents = eligibleDeposits.reduce(
     (sum, transaction) => sum + transaction.amountCents,
     0,
   );
   const openExpectations = (openItems ?? []).map((item) => ({
     id: item.id as string,
+    sourceId: item.expected_income_source_id as string | null,
     name: item.name as string,
     date: item.date as string,
     amountCents: Number(item.amount_cents),
+    state: "confirmed" as const,
+    matchMethod: null,
+    matchedTransactionId: null,
   }));
   return {
     month: workspace.month,
@@ -789,7 +809,7 @@ export async function getIncomeView(
       0,
       workspace.totals.expectedIncomeCents - receivedCents,
     ),
-    upcoming: workspace.expectedIncome,
+    upcoming,
     received,
     unmatched,
     openExpectations,
@@ -1396,27 +1416,34 @@ export async function getActivityData(
   });
 }
 
-export async function getPlanData() {
-  if (isDemoMode) return demoPlan;
+export async function getPlanData(monthValue?: string) {
+  const monthDate = normalizeBudgetMonth(monthValue);
+  const monthStart = format(monthDate, "yyyy-MM-dd");
+  const monthEnd = format(addMonths(monthDate, 1), "yyyy-MM-dd");
+  if (isDemoMode) return demoPlan.filter((item) => item.date >= monthStart && item.date < monthEnd);
   const context = await householdContext();
   if (!context) return [];
   const today = format(new Date(), "yyyy-MM-dd");
+  const rangeStart = monthStart === format(startOfMonth(new Date()), "yyyy-MM-dd") ? today : monthStart;
   const [{ data: recurring }, { data: planned }] = await Promise.all([
     context.supabase
       .from("recurring_items")
       .select("id,name,next_due_date,amount_cents,type,state")
       .eq("household_id", context.householdId)
       .in("state", ["confirmed", "matched", "inactive"])
-      .gte("next_due_date", today),
+      .gte("next_due_date", rangeStart)
+      .lt("next_due_date", monthEnd),
     context.supabase
       .from("planned_items")
-      .select("id,name,date,amount_cents,type,state,matched_transaction_id")
+      .select("id,name,date,amount_cents,type,state,matched_transaction_id,recurring_item_id")
       .eq("household_id", context.householdId)
       .in("state", ["confirmed", "matched"])
-      .gte("date", today),
+      .gte("date", rangeStart)
+      .lt("date", monthEnd),
   ]);
+  const materializedRecurringIds = new Set((planned ?? []).map((item) => item.recurring_item_id as string | null).filter((id): id is string => Boolean(id)));
   return [
-    ...(recurring ?? []).map((item) => ({
+    ...(recurring ?? []).filter((item) => !materializedRecurringIds.has(item.id as string)).map((item) => ({
       id: item.id as string,
       name: item.name as string,
       date: item.next_due_date as string,
@@ -1490,6 +1517,7 @@ export async function getSafeBreakdown() {
     plannedResult,
     recurringResult,
     incomeResult,
+    openIncomeResult,
   ] = await Promise.all([
     getBudgetData(),
     context.supabase
@@ -1515,7 +1543,7 @@ export async function getSafeBreakdown() {
     context.supabase
       .from("planned_items")
       .select(
-        "id,name,date,amount_cents,type,category_id,state,matched_transaction_id",
+        "id,name,date,amount_cents,type,category_id,state,matched_transaction_id,recurring_item_id",
       )
       .eq("household_id", context.householdId)
       .in("state", ["confirmed", "matched"]),
@@ -1533,6 +1561,16 @@ export async function getSafeBreakdown() {
       )
       .eq("household_id", context.householdId)
       .eq("active", true),
+    context.supabase
+      .from("planned_items")
+      .select("date")
+      .eq("household_id", context.householdId)
+      .eq("type", "income")
+      .eq("state", "confirmed")
+      .is("matched_transaction_id", null)
+      .not("expected_income_source_id", "is", null)
+      .order("date")
+      .limit(50),
   ]);
   const timezone =
     (householdResult.data?.timezone as string | null) ?? "America/New_York";
@@ -1552,12 +1590,13 @@ export async function getSafeBreakdown() {
   const categoryBehavior = new Map(
     categories.map((category) => [category.id, category.behaviorType]),
   );
+  const materializedRecurringIds = new Set((plannedResult.data ?? []).map((item) => item.recurring_item_id as string | null).filter((id): id is string => Boolean(id)));
   const planItems = [
     ...(plannedResult.data ?? []).map((item) => ({
       ...item,
       dueDate: item.date as string,
     })),
-    ...(recurringResult.data ?? []).map((item) => ({
+    ...(recurringResult.data ?? []).filter((item) => !materializedRecurringIds.has(item.id as string)).map((item) => ({
       ...item,
       dueDate: item.next_due_date as string,
     })),
@@ -1580,12 +1619,8 @@ export async function getSafeBreakdown() {
       (item) => item.date,
     ),
   );
-  const incomeDates = [
-    ...scheduleDates,
-    ...planItems
-      .filter((item) => item.type === "income" && item.state === "confirmed")
-      .map((item) => item.dueDate),
-  ]
+  const openIncomeDates = (openIncomeResult.data ?? []).map((item) => item.date as string).filter((date) => date >= today);
+  const incomeDates = (openIncomeDates.length ? openIncomeDates : scheduleDates)
     .filter(
       (date): date is string =>
         date !== null && date !== undefined && date >= today,

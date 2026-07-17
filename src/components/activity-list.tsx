@@ -16,7 +16,7 @@ import { formatCurrency } from "@/lib/utils";
 type Account = { id: string; name: string };
 type Filter = "all" | "pending" | "income" | "expenses" | "excluded" | "transfers";
 type ActivityMode = "review" | "all";
-type Toast = { message: string; undo?: ActivityTransaction };
+type Toast = { message: string; undo?: ActivityTransaction; undoFullEdit?: boolean };
 
 type ActivityListProps = {
   initialTransactions: ActivityTransaction[];
@@ -121,6 +121,55 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
     if (!ok) setToast({ message: "Undo could not be saved." });
   }
 
+  async function undoDetailEdit(transaction: ActivityTransaction) {
+    const response = await fetch(`/api/transactions/${transaction.id}`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ undo: true }),
+    });
+    const body = await response.json() as {
+      message?: string;
+      updatedAt?: string;
+      restored?: {
+        displayName: string | null;
+        note: string | null;
+        excluded: boolean;
+        isTransfer: boolean;
+        isRecurring: boolean;
+        reviewStatus: "reviewed" | "needs_review";
+        reviewedAt: string | null;
+        allocations: Array<{ categoryId: string; amountCents: number }>;
+      };
+    };
+    if (!response.ok || !body.restored) {
+      setToast({ message: body.message ?? "Undo could not be saved." });
+      return;
+    }
+    const restored = body.restored;
+    const firstCategory = categories.find((item) => item.id === restored.allocations[0]?.categoryId);
+    const updated: ActivityTransaction = {
+      ...transaction,
+      updatedAt: body.updatedAt ?? transaction.updatedAt,
+      merchant: restored.displayName || transaction.importedMerchant,
+      note: restored.note ?? "",
+      excluded: restored.excluded,
+      isTransfer: restored.isTransfer,
+      isRecurring: restored.isRecurring,
+      reviewStatus: restored.reviewStatus,
+      reviewedAt: restored.reviewedAt,
+      categoryId: restored.allocations.length === 1 ? restored.allocations[0]!.categoryId : (restored.allocations[0]?.categoryId ?? ""),
+      category: restored.allocations.length > 1 ? "Split" : (firstCategory?.name ?? "Unsorted"),
+      color: restored.allocations.length > 1 ? "#A6ACB8" : (firstCategory?.color ?? "#A6ACB8"),
+      allocations: restored.allocations.map((item) => ({
+        ...item,
+        category: categories.find((category) => category.id === item.categoryId)?.name ?? "Unsorted",
+      })),
+    };
+    setTransactions((items) => items.map((item) => item.id === updated.id ? updated : item));
+    if (transaction.reviewStatus !== updated.reviewStatus) adjustReviewTotal(updated.reviewStatus === "reviewed" ? -1 : 1);
+    setToast({ message: body.message ?? `${transaction.merchant} restored.` });
+  }
+
   async function mergeDuplicates(group: DuplicateGroup<ActivityTransaction>) {
     setBusyDuplicate(group.key);
     const response = await fetch("/api/transactions/duplicates", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ canonicalId: group.canonical.id, duplicateIds: group.duplicates.map((item) => item.id) }) });
@@ -160,6 +209,9 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
     const currentIndex = filtered.findIndex((item) => item.id === updated.id);
     const shouldAdvance = mode === "review" && normalized.reviewStatus === "reviewed";
     setTransactions((items) => items.map((item) => item.id === normalized.id ? normalized : item));
+    if (previous && previous.reviewStatus === "needs_review" && normalized.reviewStatus === "reviewed") {
+      setToast({ message: `${normalized.merchant} reviewed.`, undo: normalized, undoFullEdit: true });
+    }
     if (shouldAdvance) {
       const remaining = filtered.filter((item) => item.id !== normalized.id);
       setSelected(remaining[currentIndex] ?? remaining[currentIndex - 1] ?? null);
@@ -183,6 +235,6 @@ export function ActivityList({ initialTransactions, categories, accounts, initia
     })}</div>{nextCursor ? <button className="secondary-button activity-load-more" disabled={loadingPage} onClick={() => void fetchPage(true)}>{loadingPage ? "Loading…" : "Load more"}</button> : <p className="activity-end">End of activity</p>}</> : mode === "review" ? <div className="empty-state card review-caught-up"><BadgeCheck /><h2>All caught up</h2><p>Every reviewable transaction is complete.</p><button className="secondary-button" onClick={() => setMode("all")}>View all activity</button></div> : <div className="empty-state card"><h2>No activity found</h2><p>{selectedMonth ? "There are no transactions in this month." : "Try a different merchant, category, account, date, or filter."}</p></div>}
     {selected ? <TransactionDetail key={selected.id} transaction={selected} categories={categories} onClose={() => setSelected(null)} onUpdated={detailUpdated} /> : null}
     {quickCategory ? <CategoryPickerSheet categories={categories.filter((category) => quickCategory.amountCents > 0 ? category.behaviorType === "income" : category.behaviorType !== "income")} eyebrow={quickCategory.reviewStatus === "needs_review" ? "Categorize and review" : quickCategory.amountCents > 0 ? "Income category" : "Quick category"} label={`Choose category for ${quickCategory.merchant}`} onClose={() => setQuickCategory(null)} onSelect={(category) => void chooseCategory(quickCategory, category)} recentIds={quickCategory.amountCents > 0 ? [] : recentCategoryIds} selectedId={quickCategory.categoryId} title={quickCategory.merchant} /> : null}
-    {toast ? <div className="undo-toast" role="status"><span>{toast.message}</span>{toast.undo ? <button onClick={() => { const item = toast.undo; setToast(null); if (item) void undoReview(item); }}>Undo</button> : <button aria-label="Dismiss message" onClick={() => setToast(null)}><X /></button>}</div> : null}
+    {toast ? <div className="undo-toast" role="status"><span>{toast.message}</span>{toast.undo ? <button onClick={() => { const item = toast.undo; const undoFullEdit = toast.undoFullEdit; setToast(null); if (item) void (undoFullEdit ? undoDetailEdit(item) : undoReview(item)); }}>Undo</button> : <button aria-label="Dismiss message" onClick={() => setToast(null)}><X /></button>}</div> : null}
   </>;
 }

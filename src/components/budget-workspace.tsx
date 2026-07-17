@@ -327,7 +327,7 @@ export function BudgetWorkspace({
         <dl className="budget-summary-metrics">
           <div>
             <dt>
-              <Link href={`/income?month=${format(monthDate, "yyyy-MM")}`}>
+              <Link href={`/plan?month=${format(monthDate, "yyyy-MM")}#income`}>
                 Income <ChevronRight size={13} />
               </Link>
             </dt>
@@ -362,7 +362,7 @@ export function BudgetWorkspace({
       {incomeBasisCents === 0 && totals.budgeted > 0 ? (
         <Link
           className="budget-zero-warning neutral"
-          href={`/income?month=${format(monthDate, "yyyy-MM")}`}
+          href={`/plan?month=${format(monthDate, "yyyy-MM")}#income-setup`}
         >
           <TriangleAlert size={17} /> No income expected or received yet this
           month. Add expected income to plan against it.

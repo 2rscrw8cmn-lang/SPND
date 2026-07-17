@@ -7,7 +7,7 @@ const routes = [
   { path: "/budget", name: "budget", heading: "Budget" },
   { path: "/activity", name: "activity", heading: "Activity" },
   { path: "/plan", name: "plan", heading: "Plan" },
-  { path: "/income", name: "income", heading: "Income" },
+  { path: "/income", name: "income-redirect", heading: "Plan" },
   { path: "/settings", name: "settings", heading: "Settings" },
   { path: "/settings/diagnostics", name: "diagnostics", heading: "Reconciliation" },
 ] as const;
@@ -88,17 +88,14 @@ test.describe("390px mobile visual QA", () => {
   test("Budget and Plan link to reconciled monthly Income", async ({ page }, testInfo) => {
     await page.goto("/budget");
     await page.getByRole("link", { name: "Income", exact: true }).click();
-    await expect(page).toHaveURL(/\/income\?month=2026-07/);
-    await expect(page.getByRole("heading", { level: 1, name: "Income" })).toBeVisible();
-    await expect(page.getByText("$6,850.00")).toBeVisible();
-    await expect(page.getByText(/\$3,425\.00 received/)).toBeVisible();
+    await expect(page).toHaveURL(/\/plan\?month=2026-07#income/);
+    await expect(page.getByRole("heading", { level: 1, name: "Plan" })).toBeVisible();
+    await expect(page.locator("#income").getByText("$3,425.00").first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Received" })).toBeVisible();
     await expect(page.getByText("Payroll", { exact: true })).toBeVisible();
     await expect(page.getByText("No unmatched deposits.")).toBeVisible();
     await capture(page, testInfo, "income");
-    await page.goto("/plan");
-    await page.getByRole("link", { name: /Next income/ }).click();
-    await expect(page).toHaveURL(/\/income/);
+    await expect(page.getByRole("region", { name: "Cash-flow summary" })).toBeVisible();
   });
 
   test("Home category rows open matching category detail", async ({ page }) => {
@@ -133,21 +130,28 @@ test.describe("390px mobile visual QA", () => {
     const detail = page.getByRole("dialog", { name: /Publix transaction details/ });
     await expect(detail).toBeVisible();
     await expect(detail.getByText("Split transaction")).toBeVisible();
-    for (const control of ["Remember", "Recurring", "Transfer", "Exclude", "Review"]) await expect(detail.getByRole("button", { name: control, exact: true })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Review transaction" })).toBeVisible();
+    await detail.getByText("More controls").click();
+    for (const control of ["Remember", "Recurring", "Transfer", "Exclude"]) await expect(detail.getByRole("button", { name: control, exact: true })).toBeVisible();
     await detail.getByRole("button", { name: "Publix", exact: true }).click();
     await expect(detail.getByLabel("Merchant display name")).toHaveValue("Publix");
-    await detail.getByLabel("Merchant display name").fill("Publix Market");
+    await detail.getByLabel("Merchant display name").fill("");
+    await detail.getByLabel("Merchant display name").pressSequentially("Publix Market");
+    await expect(detail.getByLabel("Merchant display name")).toBeFocused();
     await detail.locator(".category-select-trigger").click();
-    const picker = page.getByRole("dialog", { name: "Choose category for Publix" });
+    const picker = page.getByRole("dialog", { name: "Choose category for Publix Market" });
     await expect(picker.getByRole("button", { name: /Housing/ })).toBeVisible();
     await expect(picker.getByRole("button", { name: /Groceries/ })).toHaveAttribute("aria-pressed", "true");
     await page.keyboard.press("Escape");
     await expect(detail).toBeVisible();
-    await expect(detail.getByText("Change history")).toBeVisible();
+    await expect(detail.getByText("Description")).toBeVisible();
+    await expect(detail.getByText("Status", { exact: true })).toHaveCount(0);
+    await expect(detail.getByLabel("Household note")).toBeHidden();
+    await expect(detail.getByText("Change history")).toBeHidden();
     await expectNoHorizontalOverflow(page);
     await capture(page, testInfo, "activity-transaction-detail");
     await page.locator(".transaction-sheet").evaluate((element) => { element.scrollTop = element.scrollHeight; });
-    await expect(detail.getByRole("button", { name: "Save changes" })).toBeVisible();
+    await expect(detail.getByRole("button", { name: "Save changes", exact: true })).toBeVisible();
     await capture(page, testInfo, "activity-transaction-detail-actions");
   });
 
@@ -196,14 +200,54 @@ test.describe("390px mobile visual QA", () => {
     await expect(page.getByRole("button", { name: /Review 2/ })).toHaveAttribute("aria-pressed", "true");
     await page.getByRole("button", { name: /Publix, Groceries/ }).click();
     let detail = page.getByRole("dialog", { name: /Publix transaction details/ });
-    await detail.getByRole("button", { name: "Review", exact: true }).click();
-    await detail.getByRole("button", { name: "Save changes" }).click();
+    await detail.getByRole("button", { name: "Review transaction" }).click();
     await expect(page.getByRole("dialog", { name: /Target transaction details/ })).toBeVisible();
     detail = page.getByRole("dialog", { name: /Target transaction details/ });
-    await detail.getByRole("button", { name: "Review", exact: true }).click();
-    await detail.getByRole("button", { name: "Save changes" }).click();
+    await detail.getByRole("button", { name: "Review transaction" }).click();
     await expect(page.getByRole("dialog")).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "All caught up" })).toBeVisible();
+  });
+
+  test("Review Undo restores the complete transaction edit", async ({ page }) => {
+    let undoRequested = false;
+    await page.route("**/api/transactions/**", async (route) => {
+      const payload = route.request().postDataJSON() as { undo?: boolean };
+      if (payload.undo) {
+        undoRequested = true;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            message: "Last transaction edit undone.",
+            restored: {
+              displayName: null,
+              note: "",
+              excluded: false,
+              isTransfer: false,
+              isRecurring: false,
+              reviewStatus: "needs_review",
+              reviewedAt: null,
+              allocations: [{ categoryId: "groceries", amountCents: -8642 }],
+            },
+          }),
+        });
+        return;
+      }
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ message: "Transaction reviewed.", transaction: { updated_at: "2026-07-16T12:00:00.000Z" } }) });
+    });
+    await page.goto("/activity");
+    await page.getByRole("button", { name: /Publix, Groceries/ }).click();
+    const detail = page.getByRole("dialog", { name: /Publix transaction details/ });
+    await detail.getByRole("button", { name: "Publix", exact: true }).click();
+    await detail.getByLabel("Merchant display name").fill("Publix Market");
+    await detail.getByRole("button", { name: "Review transaction" }).click();
+    await expect(page.getByRole("dialog", { name: /Target transaction details/ })).toBeVisible();
+    await page.getByRole("button", { name: "Undo" }).click();
+    await expect.poll(() => undoRequested).toBe(true);
+    await expect(page.getByRole("status")).toContainText("Last transaction edit undone");
+    await page.getByRole("dialog", { name: /Target transaction details/ }).getByRole("button", { name: "Close transaction", exact: true }).click();
+    await page.getByRole("button", { name: /Publix, Groceries/ }).click();
+    await expect(page.getByRole("dialog", { name: /Publix transaction details/ }).getByRole("button", { name: "Review transaction" })).toBeEnabled();
   });
 
   test("Activity can review every visible transaction in a day at once", async ({ page }) => {
@@ -267,9 +311,73 @@ test.describe("390px mobile visual QA", () => {
     const values = await detail.locator('.split-row input').evaluateAll((inputs) => inputs.map((input) => Number((input as HTMLInputElement).value)));
     expect(Math.round(values.reduce((sum, value) => sum + value, 0) * 100)).toBe(7421);
     await expect(detail.locator(".split-total")).toHaveClass(/valid/);
-    await detail.getByLabel("Split 1 amount").fill("20");
+    await detail.getByLabel("Split 1 amount").fill("");
+    await detail.getByLabel("Split 1 amount").pressSequentially("20");
+    await expect(detail.getByLabel("Split 1 amount")).toBeFocused();
     await expect(detail.getByLabel("Split 2 amount")).toHaveValue("54.21");
     await expect(detail.locator(".split-total")).toHaveClass(/valid/);
+  });
+
+  test("Review keeps an invalid split open without sending it", async ({ page }) => {
+    let updateRequests = 0;
+    await page.route("**/api/transactions/**", async (route) => {
+      updateRequests += 1;
+      await route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ message: "Transaction reviewed." }) });
+    });
+    await page.goto("/activity");
+    await page.getByRole("button", { name: /Target, Unsorted/ }).click();
+    const detail = page.getByRole("dialog", { name: /Target transaction details/ });
+    await detail.getByRole("button", { name: "Split transaction" }).click();
+    await detail.getByLabel("Split 1 amount").fill("");
+    await detail.getByRole("button", { name: "Review transaction" }).click();
+    await expect(detail).toBeVisible();
+    await expect(detail.getByRole("status")).toContainText("Each split needs a category and positive amount");
+    expect(updateRequests).toBe(0);
+  });
+
+  test("Review stays open when the transaction save fails", async ({ page }) => {
+    await page.route("**/api/transactions/**", async (route) => route.abort("failed"));
+    await page.goto("/activity");
+    await page.getByRole("button", { name: /Publix, Groceries/ }).click();
+    const detail = page.getByRole("dialog", { name: /Publix transaction details/ });
+    await detail.getByRole("button", { name: "Review transaction" }).click();
+    await expect(detail).toBeVisible();
+    await expect(detail.getByRole("status")).toContainText("Check your connection");
+  });
+
+  test("nested transaction sheets retain the iPhone scroll lock", async ({ page }) => {
+    await page.goto("/activity");
+    await page.getByRole("button", { name: "All activity" }).click();
+    await expect(page.getByRole("button", { name: /Publix,/ }).first()).toBeVisible();
+    await page.evaluate(() => { document.body.style.minHeight = "1600px"; window.scrollTo(0, 120); });
+    expect(await page.evaluate(() => window.scrollY)).toBe(120);
+    const clicked = await page.evaluate(() => {
+      const row = [...document.querySelectorAll<HTMLElement>('[role="button"][aria-label]')].find((element) => element.getAttribute("aria-label")?.startsWith("Publix,"));
+      row?.click();
+      return Boolean(row);
+    });
+    expect(clicked).toBe(true);
+    const detail = page.getByRole("dialog", { name: /Publix transaction details/ });
+    await expect(page.locator("body")).toHaveCSS("position", "fixed");
+    expect(await page.locator("body").evaluate((body) => body.style.top)).toBe("-120px");
+    await detail.locator(".category-select-trigger").click();
+    await page.getByRole("button", { name: "Close category picker" }).click();
+    await expect(page.locator("body")).toHaveCSS("position", "fixed");
+    await detail.getByRole("button", { name: "Close transaction", exact: true }).click();
+    await expect(page.locator("body")).not.toHaveCSS("position", "fixed");
+    expect(await page.evaluate(() => window.scrollY)).toBe(120);
+  });
+
+  test("recurring control opens required schedule setup", async ({ page }) => {
+    await page.goto("/activity");
+    await page.getByRole("button", { name: /Publix, Groceries/ }).click();
+    const detail = page.getByRole("dialog", { name: /Publix transaction details/ });
+    await detail.getByText("More controls").click();
+    await detail.getByRole("button", { name: "Recurring", exact: true }).click();
+    const setup = page.getByRole("dialog", { name: "Set up recurring Publix" });
+    await expect(setup.getByLabel("Expected amount")).toHaveValue("86.42");
+    await expect(setup.getByLabel("Cadence")).toHaveValue("monthly");
+    await expect(setup.getByLabel("Next date")).not.toHaveValue("");
   });
 
   test("experimental imports stay unavailable in the release configuration", async ({ page }) => {
