@@ -72,6 +72,9 @@ async function main() {
       raw_payload: {},
       note: row.note || null,
       excluded: row.excluded.toLowerCase() === "true" || row.type === "internal transfer",
+      // Legacy imports are historical and don't need line-by-line review.
+      review_status: "reviewed",
+      reviewed_at: timestamp,
     };
   });
   const transactionPayload = [...new Map(allTransactionPayload.map((row) => [row.source_fingerprint, row])).values()];

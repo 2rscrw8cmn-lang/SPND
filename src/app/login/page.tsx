@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { MagicLinkForm } from "@/components/magic-link-form";
+import { PasswordLoginForm } from "@/components/password-login-form";
 
 export const metadata: Metadata = { title: "Sign in" };
 
@@ -10,7 +10,7 @@ export default async function LoginPage({
 }) {
   const error = (await searchParams).error;
   const initialMessage = error === "invalid_link"
-    ? "That sign-in link is invalid, expired, or has already been used. Request a fresh link below."
+    ? "That sign-in link is invalid or expired. Sign in with your email and password below."
     : "";
 
   return (
@@ -19,8 +19,8 @@ export default async function LoginPage({
         <div className="wordmark">SPND</div>
         <p className="eyebrow">Turco Household</p>
         <h1>Welcome home.</h1>
-        <p>Use your approved household email. We’ll send a secure link—no password to remember.</p>
-        <MagicLinkForm initialMessage={initialMessage} />
+        <p>Sign in with your approved household email and password.</p>
+        <PasswordLoginForm initialMessage={initialMessage} />
       </section>
     </main>
   );
